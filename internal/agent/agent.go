@@ -13,6 +13,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -89,7 +91,8 @@ func NewClient(socketPath string) *Client {
 		},
 	}
 
-	return &Client{http: &http.Client{Transport: transport, Timeout: 10 * time.Second}}
+	// Reading Docker logs in a container with many apps takes a while.
+	return &Client{http: &http.Client{Transport: transport, Timeout: 45 * time.Second}}
 }
 
 func (c *Client) Health(ctx context.Context) (Health, error) {
@@ -122,6 +125,26 @@ func (c *Client) Mounts(ctx context.Context) ([]Mount, error) {
 
 func (c *Client) SaveBackupJob(ctx context.Context, job BackupJob) error {
 	return c.do(ctx, http.MethodPut, "/v1/backup-job", job, nil)
+}
+
+func (c *Client) Journal(ctx context.Context, query JournalQuery) ([]LogEntry, error) {
+	values := url.Values{
+		"vmid":     {strconv.Itoa(query.VMID)},
+		"lines":    {strconv.Itoa(query.Lines)},
+		"priority": {strconv.Itoa(query.Priority)},
+	}
+	var entries []LogEntry
+	err := c.do(ctx, http.MethodGet, "/v1/logs/journal?"+values.Encode(), nil, &entries)
+
+	return entries, err
+}
+
+func (c *Client) DockerLogs(ctx context.Context, vmid, lines int) (DockerLogs, error) {
+	values := url.Values{"vmid": {strconv.Itoa(vmid)}, "lines": {strconv.Itoa(lines)}}
+	var logs DockerLogs
+	err := c.do(ctx, http.MethodGet, "/v1/logs/docker?"+values.Encode(), nil, &logs)
+
+	return logs, err
 }
 
 // SignatureHeader carries the bundle signature as base64 JSON.

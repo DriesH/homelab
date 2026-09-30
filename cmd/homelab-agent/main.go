@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -62,6 +63,9 @@ func run(socketPath string, socketGID int, logger *slog.Logger) error {
 	mux.HandleFunc("GET /v1/jobs/{id}", getJob(runner))
 	mux.HandleFunc("GET /v1/mounts", listMounts(agent.NewMounts()))
 	mux.HandleFunc("PUT /v1/backup-job", saveBackupJob(logger))
+	logs := agent.NewLogs()
+	mux.HandleFunc("GET /v1/logs/journal", journalLogs(logs))
+	mux.HandleFunc("GET /v1/logs/docker", dockerLogs(logs))
 	upgrader := agent.NewUpgrader(version)
 	mux.HandleFunc("POST /v1/upgrade", startUpgrade(upgrader, logger))
 	mux.HandleFunc("GET /v1/upgrade", upgradeStatus(upgrader))
@@ -190,6 +194,39 @@ func saveBackupJob(logger *slog.Logger) http.HandlerFunc {
 
 		logger.Info("backup job saved", "schedule", job.Schedule(), "storage", job.Storage, "enabled", job.Enabled)
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func journalLogs(logs *agent.Logs) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		vmid, _ := strconv.Atoi(query.Get("vmid"))
+		lines, _ := strconv.Atoi(query.Get("lines"))
+		priority, _ := strconv.Atoi(query.Get("priority"))
+
+		entries, err := logs.Journal(r.Context(), agent.JournalQuery{VMID: vmid, Lines: lines, Priority: priority})
+		writeLogs(w, entries, err)
+	}
+}
+
+func dockerLogs(logs *agent.Logs) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vmid, _ := strconv.Atoi(r.URL.Query().Get("vmid"))
+		lines, _ := strconv.Atoi(r.URL.Query().Get("lines"))
+
+		result, err := logs.Docker(r.Context(), vmid, lines)
+		writeLogs(w, result, err)
+	}
+}
+
+func writeLogs(w http.ResponseWriter, result any, err error) {
+	switch {
+	case errors.Is(err, agent.ErrInvalidLogQuery):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	case err != nil:
+		http.Error(w, err.Error(), http.StatusBadGateway)
+	default:
+		writeJSON(w, http.StatusOK, result)
 	}
 }
 
