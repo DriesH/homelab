@@ -69,8 +69,8 @@ load_answers() {
         [[ -z "$line" ]] && continue
         key="${line%%=*}" value="${line#*=}"
         case "$key" in
-            NAS_SERVER | NAS_EXPORT | WIREGUARD_PRIVATE_KEY | VPN_COUNTRIES | SUBTITLE_LANGUAGES | \
-                ARR_USERNAME | ARR_PASSWORD | JELLYFIN_API_KEY | RESTART_JELLYFIN | STORAGE | DOWNLOADS_SIZE)
+            NAS_SERVER | NAS_EXPORT | MOVIES_FOLDER | SERIES_FOLDER | WIREGUARD_PRIVATE_KEY | VPN_COUNTRIES | \
+                SUBTITLE_LANGUAGES | ARR_USERNAME | ARR_PASSWORD | JELLYFIN_API_KEY | RESTART_JELLYFIN | STORAGE | DOWNLOADS_SIZE)
                 printf -v "$key" '%s' "$value"
                 ;;
             *) die "unknown answer: $key" ;;
@@ -80,12 +80,24 @@ load_answers() {
     rm -f "$ANSWERS"
 
     ((${#ARR_PASSWORD} >= 12)) || die "password must be at least 12 characters"
+    check_folders
     JELLYFIN_URL=""
     if [[ -n "$JELLYFIN_CTID" ]]; then
         JELLYFIN_URL="http://$(container_ip "$JELLYFIN_CTID"):8096"
     else
         JELLYFIN_API_KEY=""
     fi
+}
+
+# check_folders allows two different folder names in the share, and no paths.
+check_folders() {
+    local folder pattern='^[A-Za-z0-9]([A-Za-z0-9 ._-]{0,62}[A-Za-z0-9_-])?$'
+    for folder in "${MOVIES_FOLDER:-}" "${SERIES_FOLDER:-}"; do
+        if [[ ! "$folder" =~ $pattern || "$folder" == *..* ]]; then
+            die "'$folder' is not a folder name, use something like movies or series"
+        fi
+    done
+    [[ "${MOVIES_FOLDER,,}" != "${SERIES_FOLDER,,}" ]] || die "movies and series need different folders"
 }
 
 ask_settings() {
@@ -98,6 +110,10 @@ ask_settings() {
 
     ask NAS_SERVER "NAS address (IP or hostname)"
     ask NAS_EXPORT "NFS export path on the NAS (UGOS shows it, e.g. /volume1/media)"
+    echo "Movies and series each get a folder in this share, and a library in Jellyfin."
+    ask MOVIES_FOLDER "Folder for movies" "movies"
+    ask SERIES_FOLDER "Folder for series" "series"
+    check_folders
 
     echo "Get a WireGuard key at https://account.proton.me/u/0/vpn/WireGuard"
     echo "(turn on 'NAT-PMP (Port Forwarding)' when you create it)."
@@ -234,6 +250,8 @@ RADARR_API_KEY=$(openssl rand -hex 16)
 SONARR_API_KEY=$(openssl rand -hex 16)
 PROWLARR_API_KEY=$(openssl rand -hex 16)
 SUBTITLE_LANGUAGES=$SUBTITLE_LANGUAGES
+MOVIES_FOLDER=$MOVIES_FOLDER
+SERIES_FOLDER=$SERIES_FOLDER
 JELLYFIN_URL=$JELLYFIN_URL
 JELLYFIN_API_KEY=$JELLYFIN_API_KEY
 EOF

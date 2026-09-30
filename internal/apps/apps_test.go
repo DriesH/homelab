@@ -60,7 +60,7 @@ func (f *fakeProxmox) ContainerInterfaces(_ context.Context, _ string, vmid int)
 
 func validAnswers() agent.MediaStackAnswers {
 	return agent.MediaStackAnswers{
-		NASServer: "192.168.1.5", NASExport: "/volume1/media",
+		NASServer: "192.168.1.5", NASExport: "/volume1/media", MoviesFolder: "movies", SeriesFolder: "series",
 		WireGuardPrivateKey: "cGVyZmVjdGx5IHZhbGlkIGtleSBvZiAzMiBieXRlcyE=",
 		VPNCountries:        "Netherlands", SubtitleLanguages: "en",
 		Username: "homelab", Password: "correct horse battery",

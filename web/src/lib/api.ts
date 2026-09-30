@@ -317,6 +317,8 @@ export type Apps = {
         storages: string[]
         storage: string
         jellyfinVmid?: number
+        moviesFolder: string
+        seriesFolder: string
         vpnCountries: string
         subtitleLanguages: string
         username: string
@@ -328,6 +330,8 @@ export type Apps = {
 export type MediaStackAnswers = {
     nasServer: string
     nasExport: string
+    moviesFolder: string
+    seriesFolder: string
     wireguardPrivateKey: string
     vpnCountries: string
     subtitleLanguages: string

@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 	"unicode"
+
+	"homelab/internal/stacks/arr"
 )
 
 const (
@@ -45,8 +47,11 @@ var (
 // MediaStackAnswers are the questions of stacks/arr/install.sh. Every value
 // is checked, so no line breaks or shell code reach the answers file.
 type MediaStackAnswers struct {
-	NASServer           string `json:"nasServer"`
-	NASExport           string `json:"nasExport"`
+	NASServer string `json:"nasServer"`
+	NASExport string `json:"nasExport"`
+	// MoviesFolder and SeriesFolder are folders in the share. Each gets a Jellyfin library.
+	MoviesFolder        string `json:"moviesFolder"`
+	SeriesFolder        string `json:"seriesFolder"`
 	WireGuardPrivateKey string `json:"wireguardPrivateKey"`
 	VPNCountries        string `json:"vpnCountries"`
 	SubtitleLanguages   string `json:"subtitleLanguages"`
@@ -68,6 +73,10 @@ func (a MediaStackAnswers) Validate() error {
 		return invalid("the NAS address must be an IP address or a hostname")
 	case !exportPattern.MatchString(a.NASExport):
 		return invalid("the NFS export must be a path, like /volume1/media")
+	case !arr.ValidFolder(a.MoviesFolder) || !arr.ValidFolder(a.SeriesFolder):
+		return invalid("the movies and series folders must be folder names, like movies")
+	case strings.EqualFold(a.MoviesFolder, a.SeriesFolder):
+		return invalid("movies and series need different folders")
 	case !validWireGuardKey(a.WireGuardPrivateKey):
 		return invalid("the WireGuard private key must be 44 characters of base64")
 	case !countriesPattern.MatchString(a.VPNCountries):
@@ -103,6 +112,8 @@ func (a MediaStackAnswers) file() string {
 	lines := []string{
 		"NAS_SERVER=" + a.NASServer,
 		"NAS_EXPORT=" + a.NASExport,
+		"MOVIES_FOLDER=" + a.MoviesFolder,
+		"SERIES_FOLDER=" + a.SeriesFolder,
 		"WIREGUARD_PRIVATE_KEY=" + a.WireGuardPrivateKey,
 		"VPN_COUNTRIES=" + a.VPNCountries,
 		"SUBTITLE_LANGUAGES=" + a.SubtitleLanguages,

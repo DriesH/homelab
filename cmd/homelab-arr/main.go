@@ -62,6 +62,8 @@ func configure(args []string) error {
 		JellyfinInternalURL: env["JELLYFIN_INTERNAL_URL"],
 		JellyfinAPIKey:      env["JELLYFIN_API_KEY"],
 		SubtitleLanguages:   strings.Split(env["SUBTITLE_LANGUAGES"], ","),
+		MoviesFolder:        env["MOVIES_FOLDER"],
+		SeriesFolder:        env["SERIES_FOLDER"],
 		DataDir:             *dataDir,
 		BazarrConfigPath:    *bazarrConfig,
 		Endpoints:           arr.DefaultEndpoints,

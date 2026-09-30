@@ -12,6 +12,8 @@ func validAnswers() MediaStackAnswers {
 	return MediaStackAnswers{
 		NASServer:           "192.168.1.5",
 		NASExport:           "/volume1/media",
+		MoviesFolder:        "movies",
+		SeriesFolder:        "TV Shows",
 		WireGuardPrivateKey: "cGVyZmVjdGx5IHZhbGlkIGtleSBvZiAzMiBieXRlcyE=",
 		VPNCountries:        "Netherlands,Switzerland",
 		SubtitleLanguages:   "en,nl",
@@ -34,6 +36,11 @@ func TestMediaStackAnswersValidate(t *testing.T) {
 		"export not absolute": func(a *MediaStackAnswers) { a.NASExport = "volume1" },
 		"export with newline": func(a *MediaStackAnswers) { a.NASExport = "/media\nARR_PASSWORD=x" },
 		"short key":           func(a *MediaStackAnswers) { a.WireGuardPrivateKey = "abc=" },
+		"folder with slash":   func(a *MediaStackAnswers) { a.MoviesFolder = "media/movies" },
+		"folder up":           func(a *MediaStackAnswers) { a.SeriesFolder = ".." },
+		"folder newline":      func(a *MediaStackAnswers) { a.MoviesFolder = "movies\nARR_PASSWORD=x" },
+		"same folders":        func(a *MediaStackAnswers) { a.SeriesFolder = "Movies" },
+		"empty folder":        func(a *MediaStackAnswers) { a.MoviesFolder = "" },
 		"country with digits": func(a *MediaStackAnswers) { a.VPNCountries = "NL1" },
 		"language too long":   func(a *MediaStackAnswers) { a.SubtitleLanguages = "eng" },
 		"username with space": func(a *MediaStackAnswers) { a.Username = "my user" },
@@ -105,7 +112,7 @@ func TestAppInstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, line := range []string{"NAS_EXPORT=/volume1/media\n", "ARR_PASSWORD=correct horse battery\n", "RESTART_JELLYFIN=y\n", "DOWNLOADS_SIZE=200\n"} {
+	for _, line := range []string{"NAS_EXPORT=/volume1/media\n", "SERIES_FOLDER=TV Shows\n", "ARR_PASSWORD=correct horse battery\n", "RESTART_JELLYFIN=y\n", "DOWNLOADS_SIZE=200\n"} {
 		if !strings.Contains(string(answers), line) {
 			t.Errorf("answers miss %q:\n%s", line, answers)
 		}

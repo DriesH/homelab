@@ -15,7 +15,20 @@ Install it on the Apps page. The host agent runs the installer from the release 
 
 You can also run `stacks/arr/install.sh` from the bundle as root on the Proxmox host. It asks the same questions.
 
-The installer:
+## Folders
+
+Movies and series each get their own folder in the NAS share. The form asks for both names:
+
+| Folder  | Default  | On the NAS                   | In the apps and Jellyfin |
+| ------- | -------- | ---------------------------- | ------------------------ |
+| Movies  | `movies` | `/volume1/media/movies`      | `/data/media/movies`     |
+| Series  | `series` | `/volume1/media/series`      | `/data/media/series`     |
+
+Radarr puts movies in the first folder and Sonarr puts series in the second. With a Jellyfin API key, the installer adds a "Movies" and a "Series" library for them. If a folder already has files, Jellyfin shows them. To add them to Radarr or Sonarr, use Library Import in those apps.
+
+Media stacks that were installed before you could choose the folders use `movies` and `tv`.
+
+## What the installer does
 
 - mounts the NAS share on the host and shares it with the new LXC and with Jellyfin as `/data/media`;
 - keeps downloads on a local disk (`/data/downloads`);
