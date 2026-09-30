@@ -5,13 +5,21 @@ Prowlarr, Radarr, Sonarr, Bazarr, qBittorrent, Seerr, Recyclarr and FlareSolverr
 ## Before you start
 
 1. On the UGREEN NAS, turn on NFS: Control Panel > File Services > NFS.
-2. Add an NFS permission rule to the media share for the Proxmox host. Map all users to one NAS user with read/write access.
-3. Create a ProtonVPN WireGuard key with "NAT-PMP (Port Forwarding)" on.
-4. Optional: create a Jellyfin API key (Dashboard > API Keys).
+2. Add an NFS permission rule to the media share for the IP of the Proxmox host: Read/Write, and squash "Map all users to admin".
+3. Make sure that the movies and series folders allow writing over NFS. The installer checks this and names the folder that fails. NFS only looks at the folder permissions on the NAS disk, not at the share permissions for SMB users.
+4. Create a ProtonVPN WireGuard key with "NAT-PMP (Port Forwarding)" on.
+5. Optional: create a Jellyfin API key (Dashboard > API Keys).
 
 ## Install
 
-Install it on the Apps page. The host agent runs the installer from the release bundle, in its own container, and the page shows the log. If the install fails, it removes the container it made, so you can try again. Telegram tells you when it is done.
+Install it on the Apps page. The host agent runs the installer from the release bundle, in its own container, and the page shows the log. Telegram tells you when it is done.
+
+If the install fails, it removes the container and the NAS mount it made. Then:
+
+- **Try again** runs the install again with the same answers.
+- **Change answers** opens the form with your answers. Leave the WireGuard key, the password and the Jellyfin API key empty to keep them.
+
+The answers stay on the Proxmox host in a file that only root can read, for 24 hours or until the install works. The keys and passwords never go back to the browser. "Remove them now" deletes them at once.
 
 You can also run `stacks/arr/install.sh` from the bundle as root on the Proxmox host. It asks the same questions.
 

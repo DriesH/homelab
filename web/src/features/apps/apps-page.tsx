@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { ExternalLinkIcon, Loader2Icon, TriangleAlertIcon } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ExternalLinkIcon, Loader2Icon, RotateCwIcon, TriangleAlertIcon } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import type { Apps, CatalogApp } from '@/lib/api'
+import { api, type Apps, type CatalogApp } from '@/lib/api'
 import { appsQuery } from '@/lib/queries'
+import { formatDateTime } from '@/lib/format'
 import { InstallDialog } from './install-dialog'
 
 export function AppsPage() {
@@ -47,9 +49,26 @@ export function AppsPage() {
 }
 
 function AppCard({ app, defaults }: { app: CatalogApp; defaults: Apps['defaults'] }) {
+    const queryClient = useQueryClient()
     const [installOpen, setInstallOpen] = useState(false)
     const install = app.install
     const running = install?.state === 'running'
+    const saved = app.saved
+
+    const refresh = () => queryClient.invalidateQueries({ queryKey: appsQuery.queryKey })
+    const retry = useMutation({
+        mutationFn: () => api.retryApp(app.id),
+        onSuccess: refresh,
+        onError: (error) => toast.error(error.message),
+    })
+    const forget = useMutation({
+        mutationFn: () => api.forgetAppAnswers(app.id),
+        onSuccess: () => {
+            refresh()
+            toast.success('The answers are removed from the host')
+        },
+        onError: (error) => toast.error(error.message),
+    })
 
     return (
         <Card>
@@ -67,16 +86,40 @@ function AppCard({ app, defaults }: { app: CatalogApp; defaults: Apps['defaults'
                 </CardTitle>
                 <CardDescription>{app.description}</CardDescription>
                 {!app.installed && !running && (
-                    <CardAction>
-                        <Button onClick={() => setInstallOpen(true)}>
-                            {install?.state === 'failed' ? 'Try again' : 'Install'}
-                        </Button>
+                    <CardAction className="flex flex-wrap justify-end gap-2">
+                        {saved ? (
+                            <>
+                                <Button variant="outline" onClick={() => setInstallOpen(true)}>
+                                    Change answers
+                                </Button>
+                                <Button disabled={retry.isPending} onClick={() => retry.mutate()}>
+                                    {retry.isPending ? <Loader2Icon className="animate-spin" /> : <RotateCwIcon />}
+                                    Try again
+                                </Button>
+                            </>
+                        ) : (
+                            <Button onClick={() => setInstallOpen(true)}>Install</Button>
+                        )}
                     </CardAction>
                 )}
             </CardHeader>
 
             <CardContent className="flex flex-col gap-4">
                 {install && <InstallProgress install={install} />}
+                {saved && !running && (
+                    <p className="text-xs text-muted-foreground">
+                        Your answers stay on the host until {formatDateTime(saved.until)}, so you can try again without
+                        typing them. The keys and passwords never leave the host.{' '}
+                        <button
+                            type="button"
+                            className="underline"
+                            disabled={forget.isPending}
+                            onClick={() => forget.mutate()}
+                        >
+                            Remove them now
+                        </button>
+                    </p>
+                )}
                 <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     {app.links.map((link) => (
                         <li key={link.name}>
@@ -111,7 +154,13 @@ function AppCard({ app, defaults }: { app: CatalogApp; defaults: Apps['defaults'
                 )}
             </CardContent>
 
-            <InstallDialog app={app} defaults={defaults} open={installOpen} onOpenChange={setInstallOpen} />
+            <InstallDialog
+                app={app}
+                defaults={defaults}
+                saved={saved}
+                open={installOpen}
+                onOpenChange={setInstallOpen}
+            />
         </Card>
     )
 }

@@ -16,12 +16,37 @@ type fakeAgent struct {
 	mu        sync.Mutex
 	status    agent.AppInstallStatus
 	installed []string
+	retried   []string
+	saved     *agent.SavedAnswers
+	requests  []agent.InstallRequest
 }
 
-func (f *fakeAgent) InstallApp(_ context.Context, app string, _ agent.MediaStackAnswers) error {
+func (f *fakeAgent) RetryApp(_ context.Context, app string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.retried = append(f.retried, app)
+	f.status = agent.AppInstallStatus{App: app, State: agent.UpgradeRunning}
+	return nil
+}
+
+func (f *fakeAgent) SavedAppAnswers(context.Context, string) (*agent.SavedAnswers, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.saved, nil
+}
+
+func (f *fakeAgent) ForgetAppAnswers(context.Context, string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.saved = nil
+	return nil
+}
+
+func (f *fakeAgent) InstallApp(_ context.Context, app string, request agent.InstallRequest) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.installed = append(f.installed, app)
+	f.requests = append(f.requests, request)
 	f.status = agent.AppInstallStatus{App: app, State: agent.UpgradeRunning}
 	return nil
 }
@@ -114,7 +139,7 @@ func TestStatusAfterInstall(t *testing.T) {
 		t.Fatal("the catalog got a URL")
 	}
 
-	if err := service.Install(context.Background(), context.Background(), "media", validAnswers()); !errors.Is(err, ErrInstalled) {
+	if err := service.Install(context.Background(), context.Background(), "media", agent.InstallRequest{MediaStackAnswers: validAnswers()}); !errors.Is(err, ErrInstalled) {
 		t.Fatalf("install again: %v", err)
 	}
 }
@@ -129,19 +154,19 @@ func TestInstallChecksAndNotifies(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	if err := service.Install(ctx, ctx, "nextcloud", validAnswers()); !errors.Is(err, ErrUnknownApp) {
+	if err := service.Install(ctx, ctx, "nextcloud", agent.InstallRequest{MediaStackAnswers: validAnswers()}); !errors.Is(err, ErrUnknownApp) {
 		t.Fatalf("unknown: %v", err)
 	}
 	bad := validAnswers()
 	bad.Password = "short"
-	if err := service.Install(ctx, ctx, "media", bad); !errors.Is(err, agent.ErrInvalidAnswers) {
+	if err := service.Install(ctx, ctx, "media", agent.InstallRequest{MediaStackAnswers: bad}); !errors.Is(err, agent.ErrInvalidAnswers) {
 		t.Fatalf("invalid: %v", err)
 	}
 
-	if err := service.Install(ctx, ctx, "media", validAnswers()); err != nil {
+	if err := service.Install(ctx, ctx, "media", agent.InstallRequest{MediaStackAnswers: validAnswers()}); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Install(ctx, ctx, "media", validAnswers()); !errors.Is(err, ErrBusy) {
+	if err := service.Install(ctx, ctx, "media", agent.InstallRequest{MediaStackAnswers: validAnswers()}); !errors.Is(err, ErrBusy) {
 		t.Fatalf("second install: %v", err)
 	}
 
@@ -158,5 +183,47 @@ func TestInstallChecksAndNotifies(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("no message")
+	}
+}
+
+func TestRetryAndChangedAnswers(t *testing.T) {
+	saved := &agent.SavedAnswers{Answers: agent.MediaStackAnswers{NASServer: "192.168.1.5"}}
+	fake := &fakeAgent{status: agent.AppInstallStatus{App: "media", State: agent.UpgradeFailed}, saved: saved}
+	service := New(Options{Agent: fake, Proxmox: &fakeProxmox{resources: baseResources()}, SelfVMID: 100, PollInterval: time.Hour})
+	ctx := context.Background()
+
+	view, err := service.Status(ctx)
+	if err != nil || view.Apps[0].Saved != saved {
+		t.Fatalf("saved = %+v, err = %v", view.Apps[0].Saved, err)
+	}
+
+	if err := service.Retry(ctx, ctx, "media"); err != nil || len(fake.retried) != 1 {
+		t.Fatalf("retry: %v, %v", err, fake.retried)
+	}
+	if err := service.Retry(ctx, ctx, "media"); !errors.Is(err, ErrBusy) {
+		t.Fatalf("retry while running: %v", err)
+	}
+
+	// With KeepSecrets the empty secrets are fine: the agent fills them in.
+	fake.set(agent.AppInstallStatus{App: "media", State: agent.UpgradeFailed})
+	changed := validAnswers()
+	changed.Password, changed.WireGuardPrivateKey = "", ""
+	if err := service.Install(ctx, ctx, "media", agent.InstallRequest{MediaStackAnswers: changed, KeepSecrets: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !fake.requests[0].KeepSecrets {
+		t.Fatal("KeepSecrets was not passed on")
+	}
+	// Without it, they are required.
+	fake.set(agent.AppInstallStatus{App: "media", State: agent.UpgradeFailed})
+	if err := service.Install(ctx, ctx, "media", agent.InstallRequest{MediaStackAnswers: changed}); !errors.Is(err, agent.ErrInvalidAnswers) {
+		t.Fatalf("empty secrets: %v", err)
+	}
+
+	if err := service.Forget(ctx, "media"); err != nil || fake.saved != nil {
+		t.Fatalf("forget: %v", err)
+	}
+	if err := service.Forget(ctx, "nextcloud"); !errors.Is(err, ErrUnknownApp) {
+		t.Fatalf("forget unknown: %v", err)
 	}
 }

@@ -24,6 +24,9 @@ const (
 	appUnit       = "homelab-app-install"
 	maxAppLog     = 64 * 1024
 	MediaStackApp = "media"
+	// SavedAnswersTTL is how long the answers of a failed install stay on the
+	// host, so you can try again without typing the secrets again.
+	SavedAnswersTTL = 24 * time.Hour
 )
 
 var (
@@ -31,6 +34,7 @@ var (
 	ErrAppInstallRunning = errors.New("an app is already being installed")
 	ErrUnknownApp        = errors.New("unknown app")
 	ErrAppNotAvailable   = errors.New("the installer is not on the host yet, update Homelab first")
+	ErrNoSavedAnswers    = errors.New("there are no saved answers, fill in the form again")
 )
 
 var (
@@ -128,6 +132,26 @@ func (a MediaStackAnswers) file() string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
+// InstallRequest is what the manager sends. With KeepSecrets, empty secret
+// fields take the values of the saved answers of the last failed install.
+type InstallRequest struct {
+	MediaStackAnswers
+	KeepSecrets bool `json:"keepSecrets"`
+}
+
+// SavedAnswers are the answers of the last failed install, without the
+// secrets. The secrets stay on the host.
+type SavedAnswers struct {
+	Answers           MediaStackAnswers `json:"answers"`
+	HasJellyfinAPIKey bool              `json:"hasJellyfinApiKey"`
+	Until             time.Time         `json:"until"`
+}
+
+type savedFile struct {
+	Answers MediaStackAnswers `json:"answers"`
+	SavedAt time.Time         `json:"savedAt"`
+}
+
 type AppInstallStatus struct {
 	App        string       `json:"app,omitempty"`
 	State      UpgradeState `json:"state"`
@@ -148,6 +172,8 @@ type AppInstaller struct {
 	start func(script, answersPath, logPath, exitPath string) error
 	// running reports whether the install unit still runs.
 	running func() bool
+	// now is the clock for the saved answers. Tests replace it.
+	now func() time.Time
 
 	mu sync.Mutex
 }
@@ -158,6 +184,7 @@ func NewAppInstaller() *AppInstaller {
 		StacksDir: "/usr/local/lib/homelab/stacks",
 		start:     startAppUnit,
 		running:   func() bool { return exec.Command("systemctl", "is-active", "--quiet", appUnit).Run() == nil },
+		now:       time.Now,
 	}
 }
 
@@ -165,16 +192,60 @@ func (i *AppInstaller) statusPath() string { return filepath.Join(i.Dir, "status
 func (i *AppInstaller) logPath() string    { return filepath.Join(i.Dir, "install.log") }
 func (i *AppInstaller) exitPath() string   { return filepath.Join(i.Dir, "exit-code") }
 
-func (i *AppInstaller) Install(app string, answers MediaStackAnswers) error {
+func (i *AppInstaller) savedPath(app string) string {
+	return filepath.Join(i.Dir, app+".saved.json")
+}
+
+func (i *AppInstaller) Install(app string, request InstallRequest) error {
 	if app != MediaStackApp {
 		return ErrUnknownApp
-	}
-	if err := answers.Validate(); err != nil {
-		return err
 	}
 
 	i.mu.Lock()
 	defer i.mu.Unlock()
+
+	answers := request.MediaStackAnswers
+	if request.KeepSecrets {
+		saved, err := i.loadSaved(app)
+		if err != nil {
+			return err
+		}
+		if answers.WireGuardPrivateKey == "" {
+			answers.WireGuardPrivateKey = saved.WireGuardPrivateKey
+		}
+		if answers.Password == "" {
+			answers.Password = saved.Password
+		}
+		if answers.JellyfinAPIKey == "" {
+			answers.JellyfinAPIKey = saved.JellyfinAPIKey
+		}
+	}
+
+	return i.installLocked(app, answers)
+}
+
+// Retry runs the install again with the saved answers.
+func (i *AppInstaller) Retry(app string) error {
+	if app != MediaStackApp {
+		return ErrUnknownApp
+	}
+
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	answers, err := i.loadSaved(app)
+	if err != nil {
+		return err
+	}
+
+	return i.installLocked(app, answers)
+}
+
+// installLocked needs i.mu.
+func (i *AppInstaller) installLocked(app string, answers MediaStackAnswers) error {
+	if err := answers.Validate(); err != nil {
+		return err
+	}
 
 	if i.running() {
 		return ErrAppInstallRunning
@@ -195,6 +266,10 @@ func (i *AppInstaller) Install(app string, answers MediaStackAnswers) error {
 	}
 	answersPath := filepath.Join(i.Dir, app+".answers")
 	if err := os.WriteFile(answersPath, []byte(answers.file()), 0o600); err != nil {
+		return err
+	}
+	if err := i.save(app, answers); err != nil {
+		os.Remove(answersPath)
 		return err
 	}
 
@@ -251,8 +326,92 @@ func (i *AppInstaller) Status() AppInstallStatus {
 		status.VMID, _ = strconv.Atoi(match[2])
 		status.IP = match[3]
 	}
+	// A working install needs no retry, so its secrets can go.
+	if status.State == UpgradeSucceeded {
+		os.Remove(i.savedPath(status.App))
+	}
 
 	return status
+}
+
+// Saved returns the saved answers without the secrets, or nil when there are none.
+func (i *AppInstaller) Saved(app string) (*SavedAnswers, error) {
+	if app != MediaStackApp {
+		return nil, ErrUnknownApp
+	}
+
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	file, err := i.loadSavedFile(app)
+	if errors.Is(err, ErrNoSavedAnswers) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	answers := file.Answers
+	view := &SavedAnswers{HasJellyfinAPIKey: answers.JellyfinAPIKey != "", Until: file.SavedAt.Add(SavedAnswersTTL)}
+	answers.WireGuardPrivateKey, answers.Password, answers.JellyfinAPIKey = "", "", ""
+	view.Answers = answers
+
+	return view, nil
+}
+
+// Forget removes the saved answers.
+func (i *AppInstaller) Forget(app string) error {
+	if app != MediaStackApp {
+		return ErrUnknownApp
+	}
+
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	if err := os.Remove(i.savedPath(app)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+
+	return nil
+}
+
+// save keeps the answers for a retry, readable by root only. It needs i.mu.
+func (i *AppInstaller) save(app string, answers MediaStackAnswers) error {
+	data, err := json.Marshal(savedFile{Answers: answers, SavedAt: i.now()})
+	if err != nil {
+		return err
+	}
+
+	temp := i.savedPath(app) + ".tmp"
+	if err := os.WriteFile(temp, data, 0o600); err != nil {
+		return err
+	}
+
+	return os.Rename(temp, i.savedPath(app))
+}
+
+// loadSavedFile reads the saved answers and removes them when they are too old. It needs i.mu.
+func (i *AppInstaller) loadSavedFile(app string) (savedFile, error) {
+	data, err := os.ReadFile(i.savedPath(app))
+	if errors.Is(err, os.ErrNotExist) {
+		return savedFile{}, ErrNoSavedAnswers
+	}
+	if err != nil {
+		return savedFile{}, err
+	}
+
+	var file savedFile
+	if err := json.Unmarshal(data, &file); err != nil || i.now().Sub(file.SavedAt) > SavedAnswersTTL {
+		os.Remove(i.savedPath(app))
+		return savedFile{}, ErrNoSavedAnswers
+	}
+
+	return file, nil
+}
+
+func (i *AppInstaller) loadSaved(app string) (MediaStackAnswers, error) {
+	file, err := i.loadSavedFile(app)
+	return file.Answers, err
 }
 
 // startAppUnit runs the installer with systemd-run. The shell writes the exit

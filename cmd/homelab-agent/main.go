@@ -72,6 +72,22 @@ func run(socketPath string, socketGID int, logger *slog.Logger) error {
 	mux.HandleFunc("GET /v1/upgrade", upgradeStatus(upgrader))
 	apps := agent.NewAppInstaller()
 	mux.HandleFunc("POST /v1/apps/{app}/install", installApp(apps, logger))
+	mux.HandleFunc("POST /v1/apps/{app}/retry", retryApp(apps, logger))
+	mux.HandleFunc("GET /v1/apps/{app}/answers", func(w http.ResponseWriter, r *http.Request) {
+		saved, err := apps.Saved(r.PathValue("app"))
+		if err != nil {
+			writeAppError(w, logger, r.PathValue("app"), err)
+			return
+		}
+		writeJSON(w, http.StatusOK, saved)
+	})
+	mux.HandleFunc("DELETE /v1/apps/{app}/answers", func(w http.ResponseWriter, r *http.Request) {
+		if err := apps.Forget(r.PathValue("app")); err != nil {
+			writeAppError(w, logger, r.PathValue("app"), err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("GET /v1/apps/install", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, apps.Status())
 	})
@@ -181,32 +197,47 @@ func upgradeStatus(upgrader *agent.Upgrader) http.HandlerFunc {
 
 func installApp(apps *agent.AppInstaller, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var answers agent.MediaStackAnswers
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&answers); err != nil {
+		var request agent.InstallRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&request); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}
 
 		app := r.PathValue("app")
-		err := apps.Install(app, answers)
-		switch {
-		case errors.Is(err, agent.ErrInvalidAnswers), errors.Is(err, agent.ErrUnknownApp):
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		case errors.Is(err, agent.ErrAppInstallRunning):
-			http.Error(w, err.Error(), http.StatusConflict)
-			return
-		case errors.Is(err, agent.ErrAppNotAvailable):
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		case err != nil:
-			logger.Error("app install failed to start", "app", app, "error", err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		if err := apps.Install(app, request); err != nil {
+			writeAppError(w, logger, app, err)
 			return
 		}
 
 		logger.Info("app install started", "app", app)
 		w.WriteHeader(http.StatusAccepted)
+	}
+}
+
+func retryApp(apps *agent.AppInstaller, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		app := r.PathValue("app")
+		if err := apps.Retry(app); err != nil {
+			writeAppError(w, logger, app, err)
+			return
+		}
+
+		logger.Info("app install started again", "app", app)
+		w.WriteHeader(http.StatusAccepted)
+	}
+}
+
+func writeAppError(w http.ResponseWriter, logger *slog.Logger, app string, err error) {
+	switch {
+	case errors.Is(err, agent.ErrInvalidAnswers), errors.Is(err, agent.ErrUnknownApp), errors.Is(err, agent.ErrNoSavedAnswers):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	case errors.Is(err, agent.ErrAppInstallRunning):
+		http.Error(w, err.Error(), http.StatusConflict)
+	case errors.Is(err, agent.ErrAppNotAvailable):
+		http.Error(w, err.Error(), http.StatusNotFound)
+	default:
+		logger.Error("app install", "app", app, "error", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 

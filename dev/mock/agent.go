@@ -24,6 +24,8 @@ type fakeAgent struct {
 	jobs    map[string]agent.Job
 	nextJob int
 	install agent.AppInstallStatus
+	// saved are the answers of the last failed install, like the real agent keeps them.
+	saved *agent.MediaStackAnswers
 }
 
 func serveAgent(socket string) error {
@@ -64,6 +66,14 @@ func serveAgent(socket string) error {
 		writeJSON(w, fake.install)
 	})
 	mux.HandleFunc("POST /v1/apps/{app}/install", fake.installApp)
+	mux.HandleFunc("POST /v1/apps/{app}/retry", fake.retryApp)
+	mux.HandleFunc("GET /v1/apps/{app}/answers", fake.savedAnswers)
+	mux.HandleFunc("DELETE /v1/apps/{app}/answers", func(w http.ResponseWriter, r *http.Request) {
+		fake.mu.Lock()
+		fake.saved = nil
+		fake.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("GET /v1/console/{vmid}", console)
 
 	return http.Serve(listener, mux)
@@ -133,11 +143,55 @@ func (f *fakeAgent) job(w http.ResponseWriter, r *http.Request) {
 
 // installApp plays a media stack install of a few seconds.
 func (f *fakeAgent) installApp(w http.ResponseWriter, r *http.Request) {
-	var answers agent.MediaStackAnswers
-	if err := json.NewDecoder(r.Body).Decode(&answers); err != nil {
+	var request agent.InstallRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+
+	answers := request.MediaStackAnswers
+	f.mu.Lock()
+	if request.KeepSecrets && f.saved != nil {
+		if answers.WireGuardPrivateKey == "" {
+			answers.WireGuardPrivateKey = f.saved.WireGuardPrivateKey
+		}
+		if answers.Password == "" {
+			answers.Password = f.saved.Password
+		}
+		if answers.JellyfinAPIKey == "" {
+			answers.JellyfinAPIKey = f.saved.JellyfinAPIKey
+		}
+	}
+	f.mu.Unlock()
+	f.start(w, r.PathValue("app"), answers)
+}
+
+func (f *fakeAgent) retryApp(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	saved := f.saved
+	f.mu.Unlock()
+	if saved == nil {
+		http.Error(w, agent.ErrNoSavedAnswers.Error(), http.StatusBadRequest)
+		return
+	}
+	f.start(w, r.PathValue("app"), *saved)
+}
+
+func (f *fakeAgent) savedAnswers(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.saved == nil {
+		writeJSON(w, nil)
+		return
+	}
+
+	answers := *f.saved
+	hasKey := answers.JellyfinAPIKey != ""
+	answers.WireGuardPrivateKey, answers.Password, answers.JellyfinAPIKey = "", "", ""
+	writeJSON(w, agent.SavedAnswers{Answers: answers, HasJellyfinAPIKey: hasKey, Until: f.install.StartedAt.Add(agent.SavedAnswersTTL)})
+}
+
+func (f *fakeAgent) start(w http.ResponseWriter, app string, answers agent.MediaStackAnswers) {
 	if err := answers.Validate(); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -149,7 +203,8 @@ func (f *fakeAgent) installApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, agent.ErrAppInstallRunning.Error(), http.StatusConflict)
 		return
 	}
-	f.install = agent.AppInstallStatus{App: r.PathValue("app"), State: agent.UpgradeRunning, StartedAt: time.Now()}
+	f.install = agent.AppInstallStatus{App: app, State: agent.UpgradeRunning, StartedAt: time.Now()}
+	f.saved = &answers
 	f.mu.Unlock()
 
 	go f.playInstall(answers)
@@ -180,6 +235,7 @@ func (f *fakeAgent) playInstall(answers agent.MediaStackAnswers) {
 		f.install.State, f.install.Message = agent.UpgradeFailed, "the installer stopped with exit code 1"
 		return
 	}
+	f.saved = nil
 	f.install.Log += "==> Connecting the apps\n==> Done\n"
 	f.install.State, f.install.VMID, f.install.IP = agent.UpgradeSucceeded, 130, "192.168.1.150"
 	os.WriteFile(statePath("media-installed"), nil, 0o600)

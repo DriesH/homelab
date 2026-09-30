@@ -16,17 +16,19 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { api, type Apps, type CatalogApp, type MediaStackAnswers } from '@/lib/api'
+import { api, type Apps, type CatalogApp, type MediaStackAnswers, type SavedAnswers } from '@/lib/api'
 import { appsQuery } from '@/lib/queries'
 
 type InstallDialogProps = {
     app: CatalogApp
     defaults: Apps['defaults']
+    // saved are the answers of the last failed install. Their secrets stay on the host.
+    saved: SavedAnswers | null
     open: boolean
     onOpenChange: (open: boolean) => void
 }
 
-export function InstallDialog({ app, defaults, open, onOpenChange }: InstallDialogProps) {
+export function InstallDialog({ app, defaults, saved, open, onOpenChange }: InstallDialogProps) {
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-xl">
@@ -37,7 +39,9 @@ export function InstallDialog({ app, defaults, open, onOpenChange }: InstallDial
                         gets read access to the media folder.
                     </DialogDescription>
                 </DialogHeader>
-                {open && <MediaStackForm app={app} defaults={defaults} onDone={() => onOpenChange(false)} />}
+                {open && (
+                    <MediaStackForm app={app} defaults={defaults} saved={saved} onDone={() => onOpenChange(false)} />
+                )}
             </DialogContent>
         </Dialog>
     )
@@ -46,31 +50,36 @@ export function InstallDialog({ app, defaults, open, onOpenChange }: InstallDial
 function MediaStackForm({
     app,
     defaults,
+    saved,
     onDone,
 }: {
     app: CatalogApp
     defaults: Apps['defaults']
+    saved: SavedAnswers | null
     onDone: () => void
 }) {
     const queryClient = useQueryClient()
-    const [answers, setAnswers] = useState<MediaStackAnswers>({
-        nasServer: '',
-        nasExport: '',
-        moviesFolder: defaults.moviesFolder,
-        seriesFolder: defaults.seriesFolder,
-        wireguardPrivateKey: '',
-        vpnCountries: defaults.vpnCountries,
-        subtitleLanguages: defaults.subtitleLanguages,
-        username: defaults.username,
-        password: '',
-        jellyfinApiKey: '',
-        restartJellyfin: true,
-        storage: defaults.storage,
-        downloadsSize: defaults.downloadsSize,
-    })
+    const [answers, setAnswers] = useState<MediaStackAnswers>(
+        () =>
+            saved?.answers ?? {
+                nasServer: '',
+                nasExport: '',
+                moviesFolder: defaults.moviesFolder,
+                seriesFolder: defaults.seriesFolder,
+                wireguardPrivateKey: '',
+                vpnCountries: defaults.vpnCountries,
+                subtitleLanguages: defaults.subtitleLanguages,
+                username: defaults.username,
+                password: '',
+                jellyfinApiKey: '',
+                restartJellyfin: true,
+                storage: defaults.storage,
+                downloadsSize: defaults.downloadsSize,
+            },
+    )
 
     const install = useMutation({
-        mutationFn: () => api.installApp(app.id, answers),
+        mutationFn: () => api.installApp(app.id, answers, saved !== null),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: appsQuery.queryKey })
             toast.success('The install started')
@@ -171,7 +180,8 @@ function MediaStackForm({
                         autoComplete="off"
                         value={answers.wireguardPrivateKey}
                         onChange={(event) => set('wireguardPrivateKey', event.target.value.trim())}
-                        required
+                        placeholder={saved ? keepSaved : undefined}
+                        required={!saved}
                     />
                 </Field>
                 <Field id="vpn-countries" label="Server countries" help="Separate them with commas.">
@@ -207,7 +217,8 @@ function MediaStackForm({
                         value={answers.password}
                         onChange={(event) => set('password', event.target.value)}
                         aria-invalid={shortPassword}
-                        required
+                        placeholder={saved ? keepSaved : undefined}
+                        required={!saved}
                     />
                 </Field>
             </Section>
@@ -228,6 +239,7 @@ function MediaStackForm({
                             autoComplete="off"
                             value={answers.jellyfinApiKey}
                             onChange={(event) => set('jellyfinApiKey', event.target.value.trim())}
+                            placeholder={saved?.hasJellyfinApiKey ? keepSaved : undefined}
                         />
                     </Field>
                     <label className="flex items-center justify-between gap-4 text-sm">
@@ -291,7 +303,7 @@ function MediaStackForm({
                 <Button type="button" variant="outline" onClick={onDone}>
                     Cancel
                 </Button>
-                <Button type="submit" disabled={install.isPending || answers.password.length < 12}>
+                <Button type="submit" disabled={install.isPending || shortPassword || (!saved && !answers.password)}>
                     {install.isPending && <Loader2Icon className="animate-spin" />}
                     Install
                 </Button>
@@ -304,6 +316,8 @@ function MediaStackForm({
 function folderHelp(nasExport: string, folder: string) {
     return `${nasExport || '/volume1/media'}/${folder.trim() || '…'}`
 }
+
+const keepSaved = 'Saved on the host. Leave empty to keep it.'
 
 function Section({ title, help, children }: { title: string; help?: string; children: ReactNode }) {
     return (

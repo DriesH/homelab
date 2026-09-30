@@ -104,7 +104,9 @@ type Backups interface {
 
 type Apps interface {
 	Status(ctx context.Context) (apps.View, error)
-	Install(ctx context.Context, background context.Context, id string, answers agent.MediaStackAnswers) error
+	Install(ctx context.Context, background context.Context, id string, request agent.InstallRequest) error
+	Retry(ctx context.Context, background context.Context, id string) error
+	Forget(ctx context.Context, id string) error
 }
 
 type SettingsFile interface {
@@ -191,6 +193,8 @@ func New(options Options) http.Handler {
 	mux.Handle("GET /api/guests/{vmid}/console", s.requireSession(http.HandlerFunc(s.console)))
 	mux.Handle("GET /api/apps", s.requireSession(http.HandlerFunc(s.appsStatus)))
 	mux.Handle("POST /api/apps/{id}/install", s.requireSession(http.HandlerFunc(s.appsInstall)))
+	mux.Handle("POST /api/apps/{id}/retry", s.requireSession(http.HandlerFunc(s.appsRetry)))
+	mux.Handle("DELETE /api/apps/{id}/answers", s.requireSession(http.HandlerFunc(s.appsForget)))
 	mux.Handle("GET /api/settings/export", s.requireSession(http.HandlerFunc(s.settingsExport)))
 	mux.Handle("POST /api/settings/import", s.requireSession(http.HandlerFunc(s.settingsImport)))
 	mux.Handle("POST /api/data-backup/download", s.requireSession(http.HandlerFunc(s.dataBackupDownload)))

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func validAnswers() MediaStackAnswers {
@@ -90,6 +91,7 @@ func newTestInstaller(t *testing.T) (*AppInstaller, *fakeAppUnit) {
 			return nil
 		},
 		running: func() bool { return unit.running },
+		now:     time.Now,
 	}
 
 	return installer, unit
@@ -101,10 +103,10 @@ func TestAppInstall(t *testing.T) {
 	if status := installer.Status(); status.State != UpgradeIdle {
 		t.Fatalf("state = %s", status.State)
 	}
-	if err := installer.Install("nextcloud", validAnswers()); !errors.Is(err, ErrUnknownApp) {
+	if err := installer.Install("nextcloud", InstallRequest{MediaStackAnswers: validAnswers()}); !errors.Is(err, ErrUnknownApp) {
 		t.Fatalf("unknown app: %v", err)
 	}
-	if err := installer.Install(MediaStackApp, validAnswers()); err != nil {
+	if err := installer.Install(MediaStackApp, InstallRequest{MediaStackAnswers: validAnswers()}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -121,7 +123,7 @@ func TestAppInstall(t *testing.T) {
 		t.Errorf("answers mode = %v", info.Mode())
 	}
 
-	if err := installer.Install(MediaStackApp, validAnswers()); !errors.Is(err, ErrAppInstallRunning) {
+	if err := installer.Install(MediaStackApp, InstallRequest{MediaStackAnswers: validAnswers()}); !errors.Is(err, ErrAppInstallRunning) {
 		t.Fatalf("second install: %v", err)
 	}
 
@@ -143,7 +145,7 @@ func TestAppInstall(t *testing.T) {
 func TestAppInstallFailures(t *testing.T) {
 	installer, unit := newTestInstaller(t)
 
-	if err := installer.Install(MediaStackApp, validAnswers()); err != nil {
+	if err := installer.Install(MediaStackApp, InstallRequest{MediaStackAnswers: validAnswers()}); err != nil {
 		t.Fatal(err)
 	}
 	os.WriteFile(installer.exitPath(), []byte("1\n"), 0o600)
@@ -152,7 +154,7 @@ func TestAppInstallFailures(t *testing.T) {
 		t.Fatalf("status = %+v", status)
 	}
 
-	if err := installer.Install(MediaStackApp, validAnswers()); err != nil {
+	if err := installer.Install(MediaStackApp, InstallRequest{MediaStackAnswers: validAnswers()}); err != nil {
 		t.Fatal(err)
 	}
 	unit.running = false
@@ -161,7 +163,104 @@ func TestAppInstallFailures(t *testing.T) {
 	}
 
 	os.RemoveAll(installer.StacksDir)
-	if err := installer.Install(MediaStackApp, validAnswers()); !errors.Is(err, ErrAppNotAvailable) {
+	if err := installer.Install(MediaStackApp, InstallRequest{MediaStackAnswers: validAnswers()}); !errors.Is(err, ErrAppNotAvailable) {
 		t.Fatalf("no installer: %v", err)
+	}
+}
+
+func TestAppRetryUsesTheSavedAnswers(t *testing.T) {
+	installer, unit := newTestInstaller(t)
+	now := time.Now()
+	installer.now = func() time.Time { return now }
+
+	if err := installer.Retry(MediaStackApp); !errors.Is(err, ErrNoSavedAnswers) {
+		t.Fatalf("retry without answers: %v", err)
+	}
+	if err := installer.Install(MediaStackApp, InstallRequest{MediaStackAnswers: validAnswers()}); err != nil {
+		t.Fatal(err)
+	}
+	fail := func() {
+		os.WriteFile(installer.exitPath(), []byte("1\n"), 0o600)
+		unit.running = false
+		installer.Status()
+	}
+	fail()
+
+	saved, err := installer.Saved(MediaStackApp)
+	if err != nil || saved == nil {
+		t.Fatalf("saved = %v, err = %v", saved, err)
+	}
+	if saved.Answers.WireGuardPrivateKey != "" || saved.Answers.Password != "" || saved.Answers.JellyfinAPIKey != "" {
+		t.Fatalf("the view has secrets: %+v", saved.Answers)
+	}
+	if saved.Answers.NASServer != "192.168.1.5" || !saved.HasJellyfinAPIKey || !saved.Until.Equal(now.Add(SavedAnswersTTL)) {
+		t.Fatalf("saved = %+v", saved)
+	}
+	if info, _ := os.Stat(installer.savedPath(MediaStackApp)); info.Mode().Perm() != 0o600 {
+		t.Fatalf("saved answers mode = %v", info.Mode())
+	}
+
+	// Try again: the same answers, secrets included.
+	if err := installer.Retry(MediaStackApp); err != nil {
+		t.Fatal(err)
+	}
+	answers, _ := os.ReadFile(unit.started[len(unit.started)-1])
+	if !strings.Contains(string(answers), "ARR_PASSWORD=correct horse battery\n") {
+		t.Fatalf("retry answers:\n%s", answers)
+	}
+	fail()
+
+	// Change answers: empty secrets keep the saved ones.
+	changed := saved.Answers
+	changed.NASExport = "/volume1/Media"
+	if err := installer.Install(MediaStackApp, InstallRequest{MediaStackAnswers: changed, KeepSecrets: true}); err != nil {
+		t.Fatal(err)
+	}
+	answers, _ = os.ReadFile(unit.started[len(unit.started)-1])
+	for _, line := range []string{"NAS_EXPORT=/volume1/Media\n", "ARR_PASSWORD=correct horse battery\n", "WIREGUARD_PRIVATE_KEY=" + validAnswers().WireGuardPrivateKey + "\n"} {
+		if !strings.Contains(string(answers), line) {
+			t.Fatalf("answers miss %q:\n%s", line, answers)
+		}
+	}
+
+	// A working install removes the saved answers.
+	os.WriteFile(installer.exitPath(), []byte("0\n"), 0o600)
+	unit.running = false
+	installer.Status()
+	if saved, _ := installer.Saved(MediaStackApp); saved != nil {
+		t.Fatalf("saved answers after success: %+v", saved)
+	}
+}
+
+func TestSavedAnswersExpireAndCanBeForgotten(t *testing.T) {
+	installer, unit := newTestInstaller(t)
+	now := time.Now()
+	installer.now = func() time.Time { return now }
+
+	if err := installer.Install(MediaStackApp, InstallRequest{MediaStackAnswers: validAnswers()}); err != nil {
+		t.Fatal(err)
+	}
+	unit.running = false
+
+	if err := installer.Forget(MediaStackApp); err != nil {
+		t.Fatal(err)
+	}
+	if saved, _ := installer.Saved(MediaStackApp); saved != nil {
+		t.Fatal("forgotten answers are still there")
+	}
+
+	if err := installer.Install(MediaStackApp, InstallRequest{MediaStackAnswers: validAnswers()}); err != nil {
+		t.Fatal(err)
+	}
+	unit.running = false
+	now = now.Add(SavedAnswersTTL + time.Minute)
+	if err := installer.Retry(MediaStackApp); !errors.Is(err, ErrNoSavedAnswers) {
+		t.Fatalf("retry after 24 hours: %v", err)
+	}
+	if _, err := os.Stat(installer.savedPath(MediaStackApp)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("old answers were not removed")
+	}
+	if err := installer.Install(MediaStackApp, InstallRequest{KeepSecrets: true, MediaStackAnswers: validAnswers()}); !errors.Is(err, ErrNoSavedAnswers) {
+		t.Fatalf("keep secrets without saved answers: %v", err)
 	}
 }
