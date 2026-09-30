@@ -187,6 +187,30 @@ export type Health = {
     checkedAt?: string
 }
 
+export type UpgradeStatus = {
+    state: 'running' | 'succeeded' | 'failed'
+    version?: string
+    message?: string
+    startedAt?: string
+    finishedAt?: string
+    log?: string
+}
+
+export type SelfUpdate = {
+    version: string
+    repo: string
+    tokenSet: boolean
+    autoInstall: boolean
+    latest: { version: string; notes: string; url: string; publishedAt: string } | null
+    updateAvailable: boolean
+    checkedAt?: string
+    error?: string
+    installing: boolean
+    upgrade: UpgradeStatus | null
+}
+
+export type SelfUpdateSettings = { repo: string; token: string; clearToken: boolean; autoInstall: boolean }
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const response = await fetch(`/api${path}`, {
         method,
@@ -227,6 +251,10 @@ export const api = {
     saveJellyfinSettings: (settings: { url: string; apiKey: string }) =>
         request<void>('PUT', '/jellyfin/settings', settings),
     setJellyfinTheme: (enabled: boolean) => request<void>('PUT', '/jellyfin/theme', { enabled }),
+    selfUpdate: () => request<SelfUpdate>('GET', '/self-update'),
+    checkSelfUpdate: () => request<SelfUpdate>('POST', '/self-update/check'),
+    installSelfUpdate: () => request<void>('POST', '/self-update/install'),
+    saveSelfUpdateSettings: (settings: SelfUpdateSettings) => request<void>('PUT', '/self-update/settings', settings),
     health: () => request<Health>('GET', '/health'),
     refreshHealth: () => request<Health>('POST', '/health/refresh'),
     addCheck: (input: CheckInput) => request<ServiceCheck>('POST', '/health/checks', input),
