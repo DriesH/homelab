@@ -56,6 +56,8 @@ function MediaStackForm({
     const [answers, setAnswers] = useState<MediaStackAnswers>({
         nasServer: '',
         nasExport: '',
+        moviesFolder: defaults.moviesFolder,
+        seriesFolder: defaults.seriesFolder,
         wireguardPrivateKey: '',
         vpnCountries: defaults.vpnCountries,
         subtitleLanguages: defaults.subtitleLanguages,
@@ -91,7 +93,10 @@ function MediaStackForm({
 
     return (
         <form className="flex flex-col gap-6" onSubmit={handleSubmit}>
-            <Section title="NAS" help="The NFS share with your movies and series.">
+            <Section
+                title="NAS"
+                help="The NFS share with your movies and series. Each gets its own folder in it, and its own library in Jellyfin."
+            >
                 <Field id="nas-server" label="Address">
                     <Input
                         id="nas-server"
@@ -110,6 +115,32 @@ function MediaStackForm({
                         required
                     />
                 </Field>
+                <div className="grid gap-4 sm:grid-cols-2">
+                    <Field
+                        id="movies-folder"
+                        label="Movies folder"
+                        help={folderHelp(answers.nasExport, answers.moviesFolder)}
+                    >
+                        <Input
+                            id="movies-folder"
+                            value={answers.moviesFolder}
+                            onChange={(event) => set('moviesFolder', event.target.value)}
+                            required
+                        />
+                    </Field>
+                    <Field
+                        id="series-folder"
+                        label="Series folder"
+                        help={folderHelp(answers.nasExport, answers.seriesFolder)}
+                    >
+                        <Input
+                            id="series-folder"
+                            value={answers.seriesFolder}
+                            onChange={(event) => set('seriesFolder', event.target.value)}
+                            required
+                        />
+                    </Field>
+                </div>
             </Section>
 
             <Section
@@ -267,6 +298,11 @@ function MediaStackForm({
             </DialogFooter>
         </form>
     )
+}
+
+// folderHelp shows the full path on the NAS, so it's clear where the files go.
+function folderHelp(nasExport: string, folder: string) {
+    return `${nasExport || '/volume1/media'}/${folder.trim() || '…'}`
 }
 
 function Section({ title, help, children }: { title: string; help?: string; children: ReactNode }) {
