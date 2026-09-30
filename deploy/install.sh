@@ -141,6 +141,29 @@ EOF
     pct push "$CT_ID" "$env_file" /etc/homelab/homelab.env --perms 0640 --group "$SERVICE_ID"
 }
 
+# ensure_tailscale installs Tailscale in the manager container and lets the
+# manager's user run it. It is safe to run again.
+ensure_tailscale() {
+    log "Installing Tailscale in the container"
+    pct exec "$CT_ID" -- bash -euc "
+        export DEBIAN_FRONTEND=noninteractive
+        if ! command -v tailscale >/dev/null; then
+            apt-get update -q
+            apt-get install -y -q curl
+            curl -fsSL https://pkgs.tailscale.com/stable/debian/trixie.noarmor.gpg -o /usr/share/keyrings/tailscale-archive-keyring.gpg
+            curl -fsSL https://pkgs.tailscale.com/stable/debian/trixie.tailscale-keyring.list -o /etc/apt/sources.list.d/tailscale.list
+            apt-get update -q
+            apt-get install -y -q tailscale
+        fi
+        # Needed to share the home network with the tailnet (subnet router).
+        install -d /etc/sysctl.d
+        printf 'net.ipv4.ip_forward = 1\nnet.ipv6.conf.all.forwarding = 1\n' >/etc/sysctl.d/99-tailscale.conf
+        sysctl -q -p /etc/sysctl.d/99-tailscale.conf || echo 'Could not turn on IP forwarding, sharing the home network will not work'
+        systemctl enable --now tailscaled
+        tailscale set --operator=homelab
+    "
+}
+
 create_admin() {
     log "Create your admin account"
     lxc-attach -n "$CT_ID" -- runuser -u homelab -- /usr/local/bin/homelab admin </dev/tty
@@ -226,6 +249,9 @@ upgrade() {
     pct pull "$CT_ID" /usr/local/bin/homelab "$UPGRADE_BACKUP/homelab"
     pct pull "$CT_ID" /etc/systemd/system/homelab.service "$UPGRADE_BACKUP/homelab.service"
 
+    # Older installs have no Tailscale yet. Without it, only the Tailscale page doesn't work.
+    ensure_tailscale || log "Could not install Tailscale, continuing without it"
+
     log "Installing the new version"
     UPGRADE_STEP="replaced"
     replace_files "$BUNDLE_DIR"
@@ -263,6 +289,7 @@ main() {
     download_template
     create_container
     setup_container
+    ensure_tailscale
     create_admin
 
     local ct_ip
