@@ -13,6 +13,7 @@ type Resource struct {
 	Node     string  `json:"node"`
 	VMID     int     `json:"vmid"`
 	Name     string  `json:"name"`
+	Storage  string  `json:"storage"`
 	Status   string  `json:"status"`
 	Template int     `json:"template"`
 	CPU      float64 `json:"cpu"`

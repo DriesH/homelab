@@ -121,14 +121,14 @@ func (s *Service) StartCheck(ctx context.Context) error {
 func (s *Service) StartHostUpdate(ctx context.Context) error {
 	return s.start(ctx, "Updating the Proxmox host", func(ctx context.Context) {
 		run := s.updateHost(ctx)
-		s.notify(ctx, runMessage(run))
+		s.Notify(ctx, runMessage(run))
 	})
 }
 
 func (s *Service) StartGuestUpdate(ctx context.Context, vmid int) error {
 	return s.start(ctx, fmt.Sprintf("Updating container %d", vmid), func(ctx context.Context) {
 		run := s.updateGuest(ctx, vmid, false)
-		s.notify(ctx, runMessage(run))
+		s.Notify(ctx, runMessage(run))
 	})
 }
 
@@ -377,7 +377,8 @@ func (s *Service) finishRun(run Run, status RunStatus, message, log string) Run 
 	return run
 }
 
-func (s *Service) notify(ctx context.Context, text string) {
+// Notify sends a message with the saved Telegram settings. Other services use it for alerts.
+func (s *Service) Notify(ctx context.Context, text string) {
 	s.mu.Lock()
 	notifier := s.NewNotifier(s.state.Settings.Telegram)
 	s.mu.Unlock()

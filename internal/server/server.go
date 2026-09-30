@@ -11,6 +11,7 @@ import (
 
 	"homelab/internal/agent"
 	"homelab/internal/auth"
+	"homelab/internal/health"
 	"homelab/internal/jellyfin"
 	"homelab/internal/proxmox"
 	"homelab/internal/updates"
@@ -49,12 +50,22 @@ type Jellyfin interface {
 	Image(ctx context.Context, itemID, imageType string, maxWidth int) (*http.Response, error)
 }
 
+type Health interface {
+	Status() health.View
+	CheckSystem(ctx context.Context)
+	CheckServices(ctx context.Context)
+	AddCheck(input health.CheckInput) (health.Check, error)
+	UpdateCheck(id string, input health.CheckInput) error
+	DeleteCheck(id string) error
+}
+
 type Options struct {
 	Auth     *auth.Service
 	Proxmox  Proxmox
 	Agent    Agent
 	Updates  Updates
 	Jellyfin Jellyfin
+	Health   Health
 	// Background is the context for work that outlives a request, like updates.
 	Background context.Context
 	Web        fs.FS
@@ -87,6 +98,11 @@ func New(options Options) http.Handler {
 	mux.Handle("PUT /api/jellyfin/settings", s.requireSession(http.HandlerFunc(s.jellyfinSettings)))
 	mux.Handle("PUT /api/jellyfin/theme", s.requireSession(http.HandlerFunc(s.jellyfinTheme)))
 	mux.Handle("GET /api/jellyfin/items/{id}/image", s.requireSession(http.HandlerFunc(s.jellyfinImage)))
+	mux.Handle("GET /api/health", s.requireSession(http.HandlerFunc(s.healthStatus)))
+	mux.Handle("POST /api/health/refresh", s.requireSession(http.HandlerFunc(s.healthRefresh)))
+	mux.Handle("POST /api/health/checks", s.requireSession(http.HandlerFunc(s.healthAddCheck)))
+	mux.Handle("PUT /api/health/checks/{id}", s.requireSession(http.HandlerFunc(s.healthUpdateCheck)))
+	mux.Handle("DELETE /api/health/checks/{id}", s.requireSession(http.HandlerFunc(s.healthDeleteCheck)))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 	})

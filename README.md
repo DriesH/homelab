@@ -24,6 +24,19 @@ Connect Jellyfin on the Jellyfin page with its URL and an API key (Jellyfin: Das
 
 The page can also turn on a Netflix-style theme for the Jellyfin web client. The theme is written for the Modern layout of Jellyfin 12 and lives in `internal/jellyfin/netflix.css`. The manager adds it to the custom CSS of Jellyfin between two marker comments, so your own custom CSS stays. The TV and phone apps do not use custom CSS.
 
+## Health
+
+The Health page shows the SMART status of each disk, the ZFS pools and the Proxmox storage. You can also add services to watch, by URL or by TCP port.
+
+The manager sends a Telegram alert when:
+
+- a disk fails SMART or is 90% worn out;
+- a ZFS pool is not `ONLINE`;
+- a storage is 90% full;
+- a service fails two checks in a row (services are checked every minute).
+
+When the problem is fixed, you get a second message. Disks are checked every 10 minutes, because each check runs SMART. Alerts use the Telegram settings from the Updates page.
+
 ## Install
 
 You need Proxmox VE 9 or newer on an amd64 host.

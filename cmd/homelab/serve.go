@@ -18,6 +18,7 @@ import (
 	"homelab/internal/agent"
 	"homelab/internal/auth"
 	"homelab/internal/config"
+	"homelab/internal/health"
 	"homelab/internal/jellyfin"
 	"homelab/internal/proxmox"
 	"homelab/internal/server"
@@ -73,12 +74,24 @@ func serve() error {
 		return err
 	}
 
+	healthService, err := health.New(health.Options{
+		DataDir: cfg.DataDir,
+		Proxmox: pve,
+		Notify:  updateService.Notify,
+		Logger:  logger,
+	})
+	if err != nil {
+		return err
+	}
+	go healthService.Run(ctx)
+
 	handler := server.New(server.Options{
 		Auth:          auth.NewService(admin),
 		Proxmox:       pve,
 		Agent:         agentClient,
 		Updates:       updateService,
 		Jellyfin:      jellyfinService,
+		Health:        healthService,
 		Background:    ctx,
 		Web:           webFS,
 		SecureCookies: !cfg.Dev,

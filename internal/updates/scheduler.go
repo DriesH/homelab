@@ -50,7 +50,7 @@ func (s *Service) tick(ctx context.Context) {
 func (s *Service) scheduledRun(ctx context.Context) {
 	check := s.checkAll(ctx)
 	if check.Status != RunSucceeded {
-		s.notify(ctx, "❌ Weekly updates: the check failed. "+check.Message)
+		s.Notify(ctx, "❌ Weekly updates: the check failed. "+check.Message)
 		return
 	}
 
@@ -96,5 +96,5 @@ func (s *Service) scheduledRun(ctx context.Context) {
 		lines = append(lines, "🔁 Proxmox host: reboot it to use the new kernel.")
 	}
 
-	s.notify(ctx, strings.Join(lines, "\n"))
+	s.Notify(ctx, strings.Join(lines, "\n"))
 }
