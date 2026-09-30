@@ -5,7 +5,11 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -24,6 +28,8 @@ var (
 type Service struct {
 	admin Admin
 	now   func() time.Time
+	// path is where sessions are saved, so a restart doesn't sign you out. Empty means memory only.
+	path string
 
 	mu           sync.Mutex
 	sessions     map[[32]byte]time.Time
@@ -43,6 +49,70 @@ func NewService(admin Admin) *Service {
 		sessions: map[[32]byte]time.Time{},
 		failures: map[string]*failure{},
 	}
+}
+
+type savedSessions struct {
+	// Sessions maps the SHA-256 of each token to its expiry. The tokens themselves are never saved.
+	Sessions     map[string]time.Time `json:"sessions"`
+	LastTOTPStep int64                `json:"lastTotpStep"`
+}
+
+// PersistTo loads saved sessions from path and saves them there from now on.
+func (s *Service) PersistTo(path string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.path = path
+
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	var saved savedSessions
+	if err := json.Unmarshal(data, &saved); err != nil {
+		return err
+	}
+
+	for hash, expiresAt := range saved.Sessions {
+		var key [32]byte
+		if decoded, err := hex.DecodeString(hash); err == nil && len(decoded) == len(key) && s.now().Before(expiresAt) {
+			copy(key[:], decoded)
+			s.sessions[key] = expiresAt
+		}
+	}
+	s.lastTOTPStep = max(s.lastTOTPStep, saved.LastTOTPStep)
+
+	return nil
+}
+
+// saveLocked writes the sessions with 0600. It needs s.mu.
+func (s *Service) saveLocked() error {
+	if s.path == "" {
+		return nil
+	}
+
+	saved := savedSessions{Sessions: map[string]time.Time{}, LastTOTPStep: s.lastTOTPStep}
+	for key, expiresAt := range s.sessions {
+		if s.now().Before(expiresAt) {
+			saved.Sessions[hex.EncodeToString(key[:])] = expiresAt
+		}
+	}
+
+	data, err := json.Marshal(saved)
+	if err != nil {
+		return err
+	}
+
+	temp := filepath.Join(filepath.Dir(s.path), "."+filepath.Base(s.path)+".tmp")
+	if err := os.WriteFile(temp, data, 0o600); err != nil {
+		return err
+	}
+
+	return os.Rename(temp, s.path)
 }
 
 // Login returns a session token. clientIP is used for lockout after repeated failures.
@@ -80,6 +150,9 @@ func (s *Service) Login(username, password, code, clientIP string) (string, erro
 		return "", err
 	}
 	s.sessions[sha256.Sum256([]byte(token))] = s.now().Add(SessionTTL)
+	if err := s.saveLocked(); err != nil {
+		return "", err
+	}
 
 	return token, nil
 }
@@ -107,6 +180,8 @@ func (s *Service) Logout(token string) {
 	defer s.mu.Unlock()
 
 	delete(s.sessions, sha256.Sum256([]byte(token)))
+	// A failed save only means this session could come back after a restart, until it expires.
+	s.saveLocked()
 }
 
 func (s *Service) Username() string {

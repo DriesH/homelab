@@ -1,5 +1,7 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-LDFLAGS := -s -w -X main.version=$(VERSION)
+# The GitHub repo that the manager checks for new releases.
+REPO ?= $(shell git remote get-url origin 2>/dev/null | sed -E 's,(git@github.com:|https://github.com/),,; s,\.git$$,,')
+LDFLAGS := -s -w -X main.version=$(VERSION) -X homelab/internal/selfupdate.DefaultRepo=$(REPO)
 # Listed explicitly so Go doesn't scan web/node_modules.
 GO_PKGS := ./cmd/... ./internal/... ./web
 BUNDLE := dist/homelab-$(VERSION)-linux-amd64
@@ -15,11 +17,13 @@ build: web
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BUNDLE)/stacks/arr/homelab-arr ./cmd/homelab-arr
 
 bundle: build
+	echo "$(VERSION)" >$(BUNDLE)/VERSION
 	install -m 0755 deploy/install.sh $(BUNDLE)/install.sh
 	install -m 0644 deploy/lib.sh deploy/homelab.service deploy/homelab-agent.service $(BUNDLE)/
 	install -m 0755 deploy/stacks/arr/install.sh $(BUNDLE)/stacks/arr/install.sh
 	install -m 0644 deploy/stacks/arr/compose.yaml deploy/stacks/arr/recyclarr.yml $(BUNDLE)/stacks/arr/
-	tar -czf $(BUNDLE).tar.gz -C dist $(notdir $(BUNDLE))
+	# COPYFILE_DISABLE stops macOS tar from adding ._ files, which the agent refuses.
+	COPYFILE_DISABLE=1 tar -czf $(BUNDLE).tar.gz -C dist $(notdir $(BUNDLE))
 
 test:
 	go vet $(GO_PKGS)

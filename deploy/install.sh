@@ -2,6 +2,7 @@
 # Installs the homelab manager on a Proxmox VE host.
 # Run it as root on the host, from the extracted release bundle:
 #   ./install.sh [--storage local-lvm] [--bridge vmbr0] [--hostname homelab] [--ctid 120]
+# The host agent runs "./install.sh --upgrade" to install a new release.
 set -euo pipefail
 
 BUNDLE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,6 +22,9 @@ PVE_ROLE="HomelabManager"
 PVE_PRIVS="Sys.Audit,VM.Audit,VM.PowerMgmt,VM.Snapshot,VM.Snapshot.Rollback,Datastore.Audit"
 PVE_TOKEN="manager"
 
+UPGRADE_DIR="/var/lib/homelab-agent/upgrade"
+UPGRADE=""
+
 # shellcheck source=deploy/lib.sh
 source "$BUNDLE_DIR/lib.sh"
 
@@ -30,6 +34,7 @@ while [[ $# -gt 0 ]]; do
         --bridge) BRIDGE="$2"; shift 2 ;;
         --hostname) CT_HOSTNAME="$2"; shift 2 ;;
         --ctid) CT_ID="$2"; shift 2 ;;
+        --upgrade) UPGRADE=1; shift ;;
         *) die "unknown option: $1" ;;
     esac
 done
@@ -37,7 +42,7 @@ done
 preflight() {
     require_proxmox
 
-    for file in homelab homelab-agent homelab.service homelab-agent.service; do
+    for file in VERSION homelab homelab-agent homelab.service homelab-agent.service; do
         [[ -f "$BUNDLE_DIR/$file" ]] || die "missing $file next to install.sh"
     done
 
@@ -143,7 +148,115 @@ create_admin() {
     pct exec "$CT_ID" -- systemctl enable --now homelab
 }
 
+# find_manager_container prints the ID of the container that mounts the agent socket.
+find_manager_container() {
+    local id
+    for id in $(pct list | awk 'NR > 1 { print $1 }'); do
+        if pct config "$id" | grep -qE "^mp[0-9]+: $AGENT_SOCKET_DIR,"; then
+            echo "$id"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+write_upgrade_status() {
+    local state="$1" message="$2"
+    printf '{"state":"%s","version":"%s","message":"%s","finishedAt":"%s"}\n' \
+        "$state" "$VERSION" "$message" "$(date -Is)" >"$UPGRADE_DIR/status.json"
+}
+
+# The new version is healthy when both services stay up and the manager
+# listens on port 443, three checks in a row.
+upgrade_healthy() {
+    local passed=0
+    for _ in $(seq 1 30); do
+        sleep 2
+        if systemctl is-active --quiet homelab-agent &&
+            pct exec "$CT_ID" -- systemctl is-active --quiet homelab &&
+            pct exec "$CT_ID" -- bash -c 'exec 3<>/dev/tcp/127.0.0.1/443' 2>/dev/null &&
+            [[ "$(pct exec "$CT_ID" -- /usr/local/bin/homelab version)" == "$VERSION" ]]; then
+            passed=$((passed + 1))
+            ((passed >= 3)) && return 0
+        else
+            passed=0
+        fi
+    done
+
+    return 1
+}
+
+# replace_files installs the agent and the manager from a folder that has
+# homelab, homelab-agent and both service files.
+replace_files() {
+    local from="$1"
+
+    install -m 0755 "$from/homelab-agent" /usr/local/bin/homelab-agent.new
+    mv -f /usr/local/bin/homelab-agent.new /usr/local/bin/homelab-agent
+    sed "s/@SOCKET_GID@/$HOST_SOCKET_GID/" "$from/homelab-agent.service" >/etc/systemd/system/homelab-agent.service
+
+    # Push next to the running binary and rename, because a running binary can't be overwritten.
+    pct push "$CT_ID" "$from/homelab" /usr/local/bin/homelab.new --perms 0755
+    pct exec "$CT_ID" -- mv -f /usr/local/bin/homelab.new /usr/local/bin/homelab
+    pct push "$CT_ID" "$from/homelab.service" /etc/systemd/system/homelab.service --perms 0644
+
+    systemctl daemon-reload
+    pct exec "$CT_ID" -- systemctl daemon-reload
+    pct exec "$CT_ID" -- systemctl restart homelab
+    systemctl restart homelab-agent
+}
+
+upgrade() {
+    VERSION="$(cat "$BUNDLE_DIR/VERSION")"
+    UPGRADE_BACKUP="$UPGRADE_DIR/previous"
+    UPGRADE_STEP="checks"
+    trap on_upgrade_exit EXIT
+
+    require_proxmox
+    CT_ID="$(find_manager_container)" || die "could not find the manager container"
+    [[ "$(pct status "$CT_ID")" == "status: running" ]] || die "container $CT_ID is not running"
+    log "Upgrading to $VERSION (manager container $CT_ID)"
+
+    log "Saving the current version"
+    rm -rf "$UPGRADE_BACKUP"
+    install -d -m 0700 "$UPGRADE_BACKUP"
+    install -m 0755 /usr/local/bin/homelab-agent "$UPGRADE_BACKUP/homelab-agent"
+    sed "s/--socket-gid $HOST_SOCKET_GID/--socket-gid @SOCKET_GID@/" /etc/systemd/system/homelab-agent.service >"$UPGRADE_BACKUP/homelab-agent.service"
+    pct pull "$CT_ID" /usr/local/bin/homelab "$UPGRADE_BACKUP/homelab"
+    pct pull "$CT_ID" /etc/systemd/system/homelab.service "$UPGRADE_BACKUP/homelab.service"
+
+    log "Installing the new version"
+    UPGRADE_STEP="replaced"
+    replace_files "$BUNDLE_DIR"
+
+    log "Waiting for the new version to start"
+    upgrade_healthy || die "the new version did not start"
+
+    UPGRADE_STEP="done"
+    write_upgrade_status succeeded ""
+    log "Upgraded to $VERSION"
+}
+
+# on_upgrade_exit restores the previous version when the upgrade stops early.
+on_upgrade_exit() {
+    case "$UPGRADE_STEP" in
+        done) ;;
+        replaced)
+            log "Upgrade failed, restoring the previous version"
+            replace_files "$UPGRADE_BACKUP" || true
+            write_upgrade_status failed "the new version did not work, so the previous version is back"
+            ;;
+        *) write_upgrade_status failed "the upgrade stopped before anything changed" ;;
+    esac
+}
+
 main() {
+    if [[ -n "$UPGRADE" ]]; then
+        upgrade
+        return
+    fi
+
     preflight
     install_agent
     create_api_token

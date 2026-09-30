@@ -6,13 +6,17 @@ package agent
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"strings"
 	"time"
+
+	"homelab/internal/release"
 )
 
 type Health struct {
@@ -107,6 +111,63 @@ func (c *Client) Job(ctx context.Context, id string) (Job, error) {
 	err := c.do(ctx, http.MethodGet, "/v1/jobs/"+id, nil, &job)
 
 	return job, err
+}
+
+func (c *Client) Mounts(ctx context.Context) ([]Mount, error) {
+	var mounts []Mount
+	err := c.do(ctx, http.MethodGet, "/v1/mounts", nil, &mounts)
+
+	return mounts, err
+}
+
+// SignatureHeader carries the bundle signature as base64 JSON.
+const SignatureHeader = "X-Homelab-Signature"
+
+func DecodeSignatureHeader(value string) (release.Signature, error) {
+	var signature release.Signature
+	data, err := base64.StdEncoding.DecodeString(value)
+	if err != nil || json.Unmarshal(data, &signature) != nil {
+		return release.Signature{}, errors.New("missing or invalid " + SignatureHeader + " header")
+	}
+
+	return signature, nil
+}
+
+// StartUpgrade streams a release bundle to the agent. It has no fixed timeout,
+// because a bundle is tens of megabytes; ctx ends it.
+func (c *Client) StartUpgrade(ctx context.Context, bundle io.Reader, signature release.Signature) error {
+	data, err := json.Marshal(signature)
+	if err != nil {
+		return err
+	}
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://agent/v1/upgrade", bundle)
+	if err != nil {
+		return err
+	}
+	request.Header.Set(SignatureHeader, base64.StdEncoding.EncodeToString(data))
+	request.Header.Set("Content-Type", "application/gzip")
+
+	client := &http.Client{Transport: c.http.Transport}
+	response, err := client.Do(request)
+	if err != nil {
+		return fmt.Errorf("host agent: %w", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode >= 300 {
+		message, _ := io.ReadAll(io.LimitReader(response.Body, 512))
+		return fmt.Errorf("host agent: %s", strings.TrimSpace(string(message)))
+	}
+
+	return nil
+}
+
+func (c *Client) UpgradeStatus(ctx context.Context) (UpgradeStatus, error) {
+	var status UpgradeStatus
+	err := c.do(ctx, http.MethodGet, "/v1/upgrade", nil, &status)
+
+	return status, err
 }
 
 // RunJob starts a job and waits until it finishes.

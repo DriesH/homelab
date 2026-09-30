@@ -121,6 +121,96 @@ export type UpdateSettings = {
     telegram: { botToken: string; chatId: string }
 }
 
+export type CheckKind = 'http' | 'tcp'
+
+export type CheckInput = { name: string; kind: CheckKind; target: string }
+
+export type ServiceCheck = CheckInput & {
+    id: string
+    status: 'pending' | 'up' | 'down'
+    latencyMs: number
+    error?: string
+    checkedAt?: string
+    since?: string
+}
+
+export type Disk = {
+    node: string
+    devPath: string
+    model: string
+    serial: string
+    size: number
+    type: string
+    used: string
+    health: string
+    wearout: number | null
+    problem?: string
+}
+
+export type ZFSPool = {
+    node: string
+    name: string
+    health: string
+    size: number
+    alloc: number
+    frag: number
+    problem?: string
+}
+
+export type Storage = {
+    node: string
+    name: string
+    status: string
+    used: number
+    total: number
+    problem?: string
+}
+
+export type Share = {
+    path: string
+    source: string
+    fsType: string
+    mounted: boolean
+    size: number
+    used: number
+    error?: string
+    problem?: string
+}
+
+export type Health = {
+    services: ServiceCheck[]
+    disks: Disk[]
+    pools: ZFSPool[]
+    storage: Storage[]
+    shares: Share[]
+    errors: string[]
+    checkedAt?: string
+}
+
+export type UpgradeStatus = {
+    state: 'running' | 'succeeded' | 'failed'
+    version?: string
+    message?: string
+    startedAt?: string
+    finishedAt?: string
+    log?: string
+}
+
+export type SelfUpdate = {
+    version: string
+    repo: string
+    tokenSet: boolean
+    autoInstall: boolean
+    latest: { version: string; notes: string; url: string; publishedAt: string } | null
+    updateAvailable: boolean
+    checkedAt?: string
+    error?: string
+    installing: boolean
+    upgrade: UpgradeStatus | null
+}
+
+export type SelfUpdateSettings = { repo: string; token: string; clearToken: boolean; autoInstall: boolean }
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const response = await fetch(`/api${path}`, {
         method,
@@ -161,6 +251,15 @@ export const api = {
     saveJellyfinSettings: (settings: { url: string; apiKey: string }) =>
         request<void>('PUT', '/jellyfin/settings', settings),
     setJellyfinTheme: (enabled: boolean) => request<void>('PUT', '/jellyfin/theme', { enabled }),
+    selfUpdate: () => request<SelfUpdate>('GET', '/self-update'),
+    checkSelfUpdate: () => request<SelfUpdate>('POST', '/self-update/check'),
+    installSelfUpdate: () => request<void>('POST', '/self-update/install'),
+    saveSelfUpdateSettings: (settings: SelfUpdateSettings) => request<void>('PUT', '/self-update/settings', settings),
+    health: () => request<Health>('GET', '/health'),
+    refreshHealth: () => request<Health>('POST', '/health/refresh'),
+    addCheck: (input: CheckInput) => request<ServiceCheck>('POST', '/health/checks', input),
+    updateCheck: (id: string, input: CheckInput) => request<void>('PUT', `/health/checks/${id}`, input),
+    deleteCheck: (id: string) => request<void>('DELETE', `/health/checks/${id}`),
 }
 
 export function jellyfinImage(itemId: string, type: 'Primary' | 'Backdrop') {

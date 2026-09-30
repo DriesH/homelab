@@ -34,3 +34,18 @@ export const jellyfinQuery = queryOptions({
     queryFn: api.jellyfin,
     refetchInterval: 10000,
 })
+
+export const healthQuery = queryOptions({
+    queryKey: ['health'],
+    queryFn: api.health,
+    refetchInterval: 15000,
+})
+
+export const selfUpdateQuery = queryOptions({
+    queryKey: ['self-update'],
+    queryFn: api.selfUpdate,
+    // Poll fast while an upgrade runs, also while the manager restarts, so the page sees the new version quickly.
+    refetchInterval: (query) =>
+        query.state.data?.installing || query.state.data?.upgrade?.state === 'running' ? 2000 : 60000,
+    retry: false,
+})

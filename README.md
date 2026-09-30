@@ -24,15 +24,55 @@ Connect Jellyfin on the Jellyfin page with its URL and an API key (Jellyfin: Das
 
 The page can also turn on a Netflix-style theme for the Jellyfin web client. The theme is written for the Modern layout of Jellyfin 12 and lives in `internal/jellyfin/netflix.css`. The manager adds it to the custom CSS of Jellyfin between two marker comments, so your own custom CSS stays. The TV and phone apps do not use custom CSS.
 
+## Health
+
+The Health page shows the SMART status of each disk, the ZFS pools, the Proxmox storage and the network shares (like the NAS media share). You can also add services to watch, by URL or by TCP port.
+
+The manager sends a Telegram alert when:
+
+- a disk fails SMART or is 90% worn out;
+- a ZFS pool is not `ONLINE`;
+- a storage or network share is 90% full;
+- a network share is not mounted or does not answer;
+- a service fails two checks in a row (services are checked every minute).
+
+When the problem is fixed, you get a second message. Disks and shares are checked every 10 minutes, because each disk check runs SMART.
+
+The host agent finds network shares in the systemd `.mount` units and `/etc/fstab` of the Proxmox host. It can't read the SMART status of the disks inside the NAS. Use the disk warnings of the NAS itself for that. Alerts use the Telegram settings from the Updates page.
+
 ## Install
 
 You need Proxmox VE 9 or newer on an amd64 host.
 
-1. Build the bundle: `make bundle`.
-2. Copy `dist/homelab-<version>-linux-amd64.tar.gz` to the Proxmox host.
+1. Download `homelab-<version>-linux-amd64.tar.gz` from the latest GitHub release, or build it with `make bundle`.
+2. Copy it to the Proxmox host.
 3. Extract it and run `./install.sh` as root.
 4. Follow the prompts to create your admin account.
 5. Download `http://homelab.local/ca.crt` and install it as a trusted root certificate on each device.
+
+## Updating Homelab
+
+The manager checks the GitHub releases every 6 hours. When there is a new version, the header shows "Update available" and you get a Telegram message. Install it from the Updates page. You can also turn on automatic installs there.
+
+The host agent only installs a bundle that is signed with the release key. It keeps the previous version, and brings it back when the new version does not start within a minute.
+
+For a private repo, create a fine-grained token with read-only access to Contents of this repo only, and enter it on the Updates page.
+
+### Making a release
+
+1. One time: create the signing key. The private key goes straight into a GitHub secret. Commit the public key.
+
+   ```sh
+   go run ./cmd/homelab-release keygen -public internal/release/signing.pub | gh secret set HOMELAB_SIGNING_KEY
+   ```
+
+2. Tag a version and push the tag. GitHub Actions builds, tests, signs and publishes the release.
+
+   ```sh
+   git tag v0.2.0 && git push origin v0.2.0
+   ```
+
+A build without the key in `signing.pub` can't install updates. If you lose the private key, make a new one and install the next version by hand once.
 
 ## Media stack (optional)
 

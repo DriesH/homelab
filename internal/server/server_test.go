@@ -19,6 +19,7 @@ import (
 
 	"homelab/internal/agent"
 	"homelab/internal/auth"
+	"homelab/internal/health"
 	"homelab/internal/proxmox"
 	"homelab/internal/updates"
 )
@@ -62,26 +63,32 @@ func newTestServer(t *testing.T) (*httptest.Server, *fakeProxmox) {
 func newTestServerWith(t *testing.T, fakeUpdates Updates, fakeJellyfin ...Jellyfin) (*httptest.Server, *fakeProxmox) {
 	t.Helper()
 
+	return newTestServerWithOptions(t, func(options *Options) {
+		options.Updates = fakeUpdates
+		if len(fakeJellyfin) > 0 {
+			options.Jellyfin = fakeJellyfin[0]
+		}
+	})
+}
+
+func newTestServerWithOptions(t *testing.T, configure func(*Options)) (*httptest.Server, *fakeProxmox) {
+	t.Helper()
+
 	hash, err := auth.HashPassword("secret")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	pve := &fakeProxmox{}
-	handler := New(Options{
+	options := Options{
 		Auth:    auth.NewService(auth.Admin{Username: "admin", PasswordHash: hash, TOTPSecret: testSecret}),
 		Proxmox: pve,
 		Agent:   offlineAgent{},
-		Updates: fakeUpdates,
-		Jellyfin: func() Jellyfin {
-			if len(fakeJellyfin) > 0 {
-				return fakeJellyfin[0]
-			}
-			return nil
-		}(),
-		Web:    fstest.MapFS{"index.html": {Data: []byte("<h1>app</h1>")}},
-		Logger: slog.New(slog.DiscardHandler),
-	})
+		Web:     fstest.MapFS{"index.html": {Data: []byte("<h1>app</h1>")}},
+		Logger:  slog.New(slog.DiscardHandler),
+	}
+	configure(&options)
+	handler := New(options)
 
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
@@ -286,5 +293,45 @@ func TestJellyfinImageProxyValidatesInput(t *testing.T) {
 	}
 	if len(fake.images) != 1 || fake.images[0] != id+"/Primary/300" {
 		t.Fatalf("unexpected image requests: %v", fake.images)
+	}
+}
+
+type fakeHealth struct {
+	Health
+	added []health.CheckInput
+}
+
+func (f *fakeHealth) AddCheck(input health.CheckInput) (health.Check, error) {
+	if input.Name == "" {
+		return health.Check{}, health.ErrInvalidCheck
+	}
+	f.added = append(f.added, input)
+	return health.Check{ID: "1", Name: input.Name}, nil
+}
+
+func (f *fakeHealth) CheckServices(context.Context) {}
+
+func (f *fakeHealth) DeleteCheck(string) error { return health.ErrCheckNotFound }
+
+func TestHealthCheckEndpoints(t *testing.T) {
+	fake := &fakeHealth{}
+	server, _ := newTestServerWithOptions(t, func(options *Options) { options.Health = fake })
+	cookie := login(t, server)
+	body := `{"name":"Jellyfin","kind":"http","target":"http://10.0.0.5:8096"}`
+
+	if response := request(t, http.MethodPost, server.URL+"/api/health/checks", body, nil); response.StatusCode != http.StatusUnauthorized {
+		t.Errorf("without session: expected 401, got %s", response.Status)
+	}
+	if response := request(t, http.MethodPost, server.URL+"/api/health/checks", body, cookie); response.StatusCode != http.StatusCreated {
+		t.Errorf("add: expected 201, got %s", response.Status)
+	}
+	if response := request(t, http.MethodPost, server.URL+"/api/health/checks", `{"name":""}`, cookie); response.StatusCode != http.StatusBadRequest {
+		t.Errorf("invalid: expected 400, got %s", response.Status)
+	}
+	if response := request(t, http.MethodDelete, server.URL+"/api/health/checks/nope", "", cookie); response.StatusCode != http.StatusNotFound {
+		t.Errorf("delete unknown: expected 404, got %s", response.Status)
+	}
+	if len(fake.added) != 1 || fake.added[0].Target != "http://10.0.0.5:8096" {
+		t.Errorf("unexpected checks: %+v", fake.added)
 	}
 }

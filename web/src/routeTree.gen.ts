@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as AppHealthRouteImport } from './routes/_app/health'
 import { Route as AppJellyfinRouteImport } from './routes/_app/jellyfin'
 import { Route as AppUpdatesRouteImport } from './routes/_app/updates'
 
@@ -29,6 +30,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppHealthRoute = AppHealthRouteImport.update({
+  id: '/health',
+  path: '/health',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppJellyfinRoute = AppJellyfinRouteImport.update({
   id: '/jellyfin',
   path: '/jellyfin',
@@ -43,11 +49,13 @@ const AppUpdatesRoute = AppUpdatesRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/login': typeof LoginRoute
+  '/health': typeof AppHealthRoute
   '/jellyfin': typeof AppJellyfinRoute
   '/updates': typeof AppUpdatesRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
+  '/health': typeof AppHealthRoute
   '/jellyfin': typeof AppJellyfinRoute
   '/updates': typeof AppUpdatesRoute
   '/': typeof AppIndexRoute
@@ -56,19 +64,21 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
+  '/_app/health': typeof AppHealthRoute
   '/_app/jellyfin': typeof AppJellyfinRoute
   '/_app/updates': typeof AppUpdatesRoute
   '/_app/': typeof AppIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/jellyfin' | '/updates'
+  fullPaths: '/' | '/login' | '/health' | '/jellyfin' | '/updates'
   fileRoutesByTo: FileRoutesByTo
-  to: '/login' | '/jellyfin' | '/updates' | '/'
+  to: '/login' | '/health' | '/jellyfin' | '/updates' | '/'
   id:
     | '__root__'
     | '/_app'
     | '/login'
+    | '/_app/health'
     | '/_app/jellyfin'
     | '/_app/updates'
     | '/_app/'
@@ -102,6 +112,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/health': {
+      id: '/_app/health'
+      path: '/health'
+      fullPath: '/health'
+      preLoaderRoute: typeof AppHealthRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/jellyfin': {
       id: '/_app/jellyfin'
       path: '/jellyfin'
@@ -120,12 +137,14 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppRouteChildren {
+  AppHealthRoute: typeof AppHealthRoute
   AppJellyfinRoute: typeof AppJellyfinRoute
   AppUpdatesRoute: typeof AppUpdatesRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppHealthRoute: AppHealthRoute,
   AppJellyfinRoute: AppJellyfinRoute,
   AppUpdatesRoute: AppUpdatesRoute,
   AppIndexRoute: AppIndexRoute,
