@@ -211,6 +211,27 @@ export type SelfUpdate = {
 
 export type SelfUpdateSettings = { repo: string; token: string; clearToken: boolean; autoInstall: boolean }
 
+export type TailscaleSettings = { shareSubnet: boolean; subnet: string }
+
+export type Tailscale = {
+    installed: boolean
+    state: string
+    authUrl?: string
+    connecting: boolean
+    error?: string
+    health: string[]
+    name?: string
+    dnsName?: string
+    ips: string[]
+    tailnet?: string
+    serving: boolean
+    serveUrl?: string
+    settings: TailscaleSettings
+    suggestedSubnet?: string
+    subnetApproved: boolean
+    peers: { name: string; dnsName: string; os: string; ips: string[]; online: boolean; lastSeen?: string }[]
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const response = await fetch(`/api${path}`, {
         method,
@@ -255,6 +276,11 @@ export const api = {
     checkSelfUpdate: () => request<SelfUpdate>('POST', '/self-update/check'),
     installSelfUpdate: () => request<void>('POST', '/self-update/install'),
     saveSelfUpdateSettings: (settings: SelfUpdateSettings) => request<void>('PUT', '/self-update/settings', settings),
+    tailscale: () => request<Tailscale>('GET', '/tailscale'),
+    connectTailscale: (authKey: string) => request<void>('POST', '/tailscale/connect', { authKey }),
+    logoutTailscale: () => request<void>('POST', '/tailscale/logout'),
+    setTailscaleServe: (enabled: boolean) => request<void>('PUT', '/tailscale/serve', { enabled }),
+    saveTailscaleSettings: (settings: TailscaleSettings) => request<void>('PUT', '/tailscale/settings', settings),
     health: () => request<Health>('GET', '/health'),
     refreshHealth: () => request<Health>('POST', '/health/refresh'),
     addCheck: (input: CheckInput) => request<ServiceCheck>('POST', '/health/checks', input),

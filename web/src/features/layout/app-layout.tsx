@@ -25,6 +25,7 @@ const navigation = [
     { to: '/health', label: 'Health' },
     { to: '/updates', label: 'Updates' },
     { to: '/jellyfin', label: 'Jellyfin' },
+    { to: '/tailscale', label: 'Tailscale' },
 ] as const
 
 export function AppLayout() {

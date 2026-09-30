@@ -49,3 +49,10 @@ export const selfUpdateQuery = queryOptions({
         query.state.data?.installing || query.state.data?.upgrade?.state === 'running' ? 2000 : 60000,
     retry: false,
 })
+
+export const tailscaleQuery = queryOptions({
+    queryKey: ['tailscale'],
+    queryFn: api.tailscale,
+    // Poll fast during a login, so the page sees the login link and the result quickly.
+    refetchInterval: (query) => (query.state.data?.connecting ? 2000 : 15000),
+})
