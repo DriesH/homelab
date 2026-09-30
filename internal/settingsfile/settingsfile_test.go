@@ -355,13 +355,12 @@ func TestParseErrorsAreReadable(t *testing.T) {
 	}
 }
 
-func TestReadmeExampleParses(t *testing.T) {
-	readme, err := os.ReadFile("../../README.md")
+func TestDocsExampleParses(t *testing.T) {
+	doc, err := os.ReadFile("../../docs/settings-file.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, section, _ := strings.Cut(string(readme), "## Settings file")
-	_, example, _ := strings.Cut(section, "```yaml\n")
+	_, example, _ := strings.Cut(string(doc), "```yaml\n")
 	example, _, _ = strings.Cut(example, "```")
 
 	file, err := Parse([]byte(example))
