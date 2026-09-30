@@ -152,7 +152,7 @@ setup_container() {
     local host_ip env_file
     host_ip="$(ip -4 -o addr show dev "$BRIDGE" | awk '{ print $4 }' | cut -d/ -f1 | head -n1)"
     env_file="$(mktemp)"
-    trap 'rm -f "$env_file"' RETURN
+    trap 'rm -f "$env_file"; trap - RETURN' RETURN
 
     cat >"$env_file" <<EOF
 HOMELAB_HOSTNAME=$CT_HOSTNAME.local
@@ -172,6 +172,12 @@ install_scripts() {
     install -m 0755 "$BUNDLE_DIR/install.sh" "$SCRIPTS_DIR/install.sh.new"
     install -m 0644 "$BUNDLE_DIR/lib.sh" "$SCRIPTS_DIR/lib.sh"
     mv -f "$SCRIPTS_DIR/install.sh.new" "$SCRIPTS_DIR/install.sh"
+    # The Apps page installs stacks from here.
+    if [[ -d "$BUNDLE_DIR/stacks/arr" ]]; then
+        install -d -m 0755 "$SCRIPTS_DIR/stacks/arr"
+        install -m 0755 "$BUNDLE_DIR/stacks/arr/install.sh" "$BUNDLE_DIR/stacks/arr/homelab-arr" "$SCRIPTS_DIR/stacks/arr/"
+        install -m 0644 "$BUNDLE_DIR/stacks/arr/compose.yaml" "$BUNDLE_DIR/stacks/arr/recyclarr.yml" "$SCRIPTS_DIR/stacks/arr/"
+    fi
     local command
     for command in restore uninstall; do
         printf '#!/bin/sh\nexec %s/install.sh --%s "$@"\n' "$SCRIPTS_DIR" "$command" >"/usr/local/sbin/homelab-$command"
