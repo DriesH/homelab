@@ -11,6 +11,7 @@ import (
 
 	"homelab/internal/agent"
 	"homelab/internal/auth"
+	"homelab/internal/backups"
 	"homelab/internal/health"
 	"homelab/internal/jellyfin"
 	"homelab/internal/proxmox"
@@ -76,6 +77,14 @@ type Tailscale interface {
 	SaveSettings(ctx context.Context, settings tailscale.Settings) error
 }
 
+type Backups interface {
+	Status(ctx context.Context) (backups.View, error)
+	SaveJob(ctx context.Context, job agent.BackupJob) error
+	BackUp(ctx context.Context, vmid int) error
+	Restore(ctx context.Context, vmid int, volid string) error
+	Delete(ctx context.Context, volid string) error
+}
+
 type Options struct {
 	Auth       *auth.Service
 	Proxmox    Proxmox
@@ -85,6 +94,7 @@ type Options struct {
 	Health     Health
 	SelfUpdate SelfUpdate
 	Tailscale  Tailscale
+	Backups    Backups
 	// Background is the context for work that outlives a request, like updates.
 	Background context.Context
 	Web        fs.FS
@@ -131,6 +141,11 @@ func New(options Options) http.Handler {
 	mux.Handle("POST /api/tailscale/logout", s.requireSession(http.HandlerFunc(s.tailscaleLogout)))
 	mux.Handle("PUT /api/tailscale/serve", s.requireSession(http.HandlerFunc(s.tailscaleServe)))
 	mux.Handle("PUT /api/tailscale/settings", s.requireSession(http.HandlerFunc(s.tailscaleSettings)))
+	mux.Handle("GET /api/backups", s.requireSession(http.HandlerFunc(s.backupsStatus)))
+	mux.Handle("PUT /api/backups/job", s.requireSession(http.HandlerFunc(s.backupsSaveJob)))
+	mux.Handle("POST /api/backups/guests/{vmid}", s.requireSession(http.HandlerFunc(s.backupsBackUp)))
+	mux.Handle("POST /api/backups/restore", s.requireSession(http.HandlerFunc(s.backupsRestore)))
+	mux.Handle("POST /api/backups/delete", s.requireSession(http.HandlerFunc(s.backupsDelete)))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 	})

@@ -40,6 +40,18 @@ When the problem is fixed, you get a second message. Disks and shares are checke
 
 The host agent finds network shares in the systemd `.mount` units and `/etc/fstab` of the Proxmox host. It can't read the SMART status of the disks inside the NAS. Use the disk warnings of the NAS itself for that. Alerts use the Telegram settings from the Updates page.
 
+## Backups
+
+The Backups page makes a normal Proxmox backup job (`homelab-backup`), so it also runs while Homelab is down, and you can see it in the Proxmox UI.
+
+- Choose the days, the time, the storage and how many daily, weekly and monthly backups to keep. By default, every guest is backed up at 03:00 on `local`.
+- New containers and VMs are included automatically. Turn one off with its switch.
+- Back up one guest now, restore a backup or delete it. A restore shuts the guest down, restores it to the storage of its current disk, and starts it again.
+- Homelab can't restore its own container. Restore that one in Proxmox.
+- Failed scheduled backups are sent to Telegram.
+
+The host agent creates the job with checked settings, so the API token needs no `Sys.Modify`. The token only has `VM.Backup` and `Datastore.AllocateSpace` for backups.
+
 ## Tailscale
 
 The installer puts Tailscale in the manager container. Connect it on the Tailscale page, with your Tailscale account or an auth key.

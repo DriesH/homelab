@@ -18,6 +18,7 @@ import (
 
 	"homelab/internal/agent"
 	"homelab/internal/auth"
+	"homelab/internal/backups"
 	"homelab/internal/config"
 	"homelab/internal/health"
 	"homelab/internal/jellyfin"
@@ -102,6 +103,19 @@ func serve() error {
 	}
 	go selfUpdateService.Run(ctx)
 
+	backupService, err := backups.New(backups.Options{
+		DataDir:  cfg.DataDir,
+		Proxmox:  pve,
+		Agent:    agentClient,
+		SelfVMID: cfg.SelfVMID,
+		Notify:   updateService.Notify,
+		Logger:   logger,
+	})
+	if err != nil {
+		return err
+	}
+	go backupService.RunMonitor(ctx)
+
 	tailscaleService, err := tailscale.New(tailscale.Options{
 		DataDir: cfg.DataDir,
 		Backend: serveBackend(cfg),
@@ -125,6 +139,7 @@ func serve() error {
 		Health:        healthService,
 		SelfUpdate:    selfUpdateService,
 		Tailscale:     tailscaleService,
+		Backups:       backupService,
 		Background:    ctx,
 		Web:           webFS,
 		SecureCookies: !cfg.Dev,
