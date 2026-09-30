@@ -283,7 +283,10 @@ EOF
 
 start_stack() {
     log "Starting the stack (the first image download takes a few minutes)"
-    pct exec "$CT_ID" -- docker compose --project-directory /opt/arr up -d --quiet-pull
+    # qBittorrent and Prowlarr wait for a healthy VPN, so a VPN problem can already fail here.
+    if ! pct exec "$CT_ID" -- docker compose --project-directory /opt/arr up -d --quiet-pull; then
+        vpn_failed
+    fi
 
     log "Waiting for the VPN"
     for _ in $(seq 1 60); do
@@ -293,8 +296,14 @@ start_stack() {
         sleep 3
     done
 
-    pct exec "$CT_ID" -- docker logs --tail 20 gluetun >&2
-    die "the VPN did not connect, check the WireGuard key and countries in /opt/arr/.env inside container $CT_ID"
+    vpn_failed
+}
+
+# vpn_failed shows the end of the VPN log, because the container may be removed after this.
+vpn_failed() {
+    echo "Last lines of the VPN log (gluetun):" >&2
+    pct exec "$CT_ID" -- docker logs --tail 50 gluetun >&2 || true
+    die "the VPN did not connect. Check the WireGuard key and the server countries, and read the VPN log above"
 }
 
 share_media_with_jellyfin() {
