@@ -4,6 +4,7 @@
 #   ./install.sh [--storage local-lvm] [--bridge vmbr0] [--hostname homelab] [--ctid 120]
 # The host agent runs "./install.sh --upgrade" to install a new release.
 # "homelab-restore [backup]" restores the manager container from a Proxmox backup.
+# "homelab-uninstall" removes Homelab from the host.
 set -euo pipefail
 
 BUNDLE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,6 +30,8 @@ UPGRADE_DIR="/var/lib/homelab-agent/upgrade"
 UPGRADE=""
 RESTORE=""
 RESTORE_VOLID=""
+UNINSTALL=""
+BACKUP_JOB="homelab-backup"
 
 # The installer stays on the host, for restores.
 SCRIPTS_DIR="/usr/local/lib/homelab"
@@ -43,6 +46,7 @@ while [[ $# -gt 0 ]]; do
         --hostname) CT_HOSTNAME="$2"; shift 2 ;;
         --ctid) CT_ID="$2"; shift 2 ;;
         --upgrade) UPGRADE=1; shift ;;
+        --uninstall) UNINSTALL=1; shift ;;
         --restore)
             RESTORE=1
             if [[ $# -gt 1 && "$2" != --* ]]; then
@@ -168,8 +172,11 @@ install_scripts() {
     install -m 0755 "$BUNDLE_DIR/install.sh" "$SCRIPTS_DIR/install.sh.new"
     install -m 0644 "$BUNDLE_DIR/lib.sh" "$SCRIPTS_DIR/lib.sh"
     mv -f "$SCRIPTS_DIR/install.sh.new" "$SCRIPTS_DIR/install.sh"
-    printf '#!/bin/sh\nexec %s/install.sh --restore "$@"\n' "$SCRIPTS_DIR" >/usr/local/sbin/homelab-restore
-    chmod 0755 /usr/local/sbin/homelab-restore
+    local command
+    for command in restore uninstall; do
+        printf '#!/bin/sh\nexec %s/install.sh --%s "$@"\n' "$SCRIPTS_DIR" "$command" >"/usr/local/sbin/homelab-$command"
+        chmod 0755 "/usr/local/sbin/homelab-$command"
+    done
 }
 
 # ensure_tailscale installs Tailscale in the manager container and lets the
@@ -415,7 +422,120 @@ restore() {
     echo "The manager runs the version from the backup. The Updates page offers a newer version, if there is one."
 }
 
+# yes_no VAR "question" default. Only "yes" and "no" are answers.
+yes_no() {
+    local var="$1" question="$2" default="$3" reply
+    while true; do
+        ask reply "$question (yes/no)" "$default"
+        if [[ "$reply" == "yes" || "$reply" == "no" ]]; then
+            printf -v "$var" '%s' "$reply"
+            return
+        fi
+    done
+}
+
+# homelab_snapshots prints "vmid name" for every snapshot that Homelab made before an update.
+homelab_snapshots() {
+    local id
+    for id in $(pct list | awk 'NR > 1 { print $1 }'); do
+        pct listsnapshot "$id" 2>/dev/null | grep -oE 'homelab_[0-9]{8}_[0-9]{6}' | sed "s/^/$id /"
+    done
+}
+
+uninstall() {
+    require_proxmox
+    CT_ID="$(find_manager_container)" || CT_ID=""
+
+    local snapshots=() has_job="" delete_ct="no" delete_snapshots="no" delete_job="no" go
+    mapfile -t snapshots < <(homelab_snapshots)
+    pvesh get "/cluster/backup/$BACKUP_JOB" >/dev/null 2>&1 && has_job=1
+
+    echo "This removes Homelab from this host:"
+    echo "  - the host agent (homelab-agent) and its files in /var/lib/homelab-agent"
+    echo "  - the Proxmox user $PVE_USER, its API token and the role $PVE_ROLE"
+    echo "  - the homelab-restore and homelab-uninstall commands"
+    echo "Backup files, the media stack and the NAS mount stay."
+    echo
+
+    if [[ -n "$CT_ID" ]]; then
+        yes_no delete_ct "Delete the manager container $CT_ID? Its backups stay" yes
+    fi
+    if ((${#snapshots[@]} > 0)); then
+        yes_no delete_snapshots "Delete the ${#snapshots[@]} snapshots that Homelab made before updates?" yes
+    fi
+    if [[ -n "$has_job" ]]; then
+        echo "The backup job '$BACKUP_JOB' also works without Homelab."
+        yes_no delete_job "Delete the backup job?" no
+    fi
+    yes_no go "Uninstall now?" no
+    [[ "$go" == "yes" ]] || die "stopped, nothing changed"
+
+    if [[ -n "$CT_ID" && "$delete_ct" == "yes" ]]; then
+        log "Deleting container $CT_ID"
+        if [[ "$(pct status "$CT_ID")" == "status: running" ]]; then
+            # Removes this device from the tailnet. Best effort: Tailscale may be off.
+            pct exec "$CT_ID" -- tailscale logout >/dev/null 2>&1 || true
+            pct stop "$CT_ID"
+        fi
+        pct destroy "$CT_ID" --purge 1
+    elif [[ -n "$CT_ID" ]]; then
+        # Without the agent folder, the container would not start anymore.
+        local mount
+        mount="$(pct config "$CT_ID" | sed -nE "s#^(mp[0-9]+): $AGENT_SOCKET_DIR,.*#\\1#p")"
+        log "Keeping container $CT_ID, removing its $mount mount of the agent"
+        pct set "$CT_ID" --delete "$mount"
+    fi
+
+    if [[ "$delete_snapshots" == "yes" ]]; then
+        local snapshot
+        for snapshot in "${snapshots[@]}"; do
+            # The snapshots of a deleted container are already gone.
+            pct status "${snapshot% *}" >/dev/null 2>&1 || continue
+            log "Deleting snapshot ${snapshot#* } of container ${snapshot% *}"
+            pct delsnapshot "${snapshot% *}" "${snapshot#* }" || log "Could not delete it, continuing"
+        done
+    fi
+
+    if [[ "$delete_job" == "yes" ]]; then
+        log "Deleting the backup job"
+        pvesh delete "/cluster/backup/$BACKUP_JOB"
+    fi
+
+    log "Removing the host agent"
+    systemctl disable --now homelab-agent 2>/dev/null || true
+    rm -f /etc/systemd/system/homelab-agent.service /usr/local/bin/homelab-agent
+    systemctl daemon-reload
+    rm -rf /var/lib/homelab-agent
+
+    log "Removing the Proxmox user and role"
+    # Deleting the user also deletes its token and permissions.
+    if pvesh get "/access/users/$PVE_USER" >/dev/null 2>&1; then
+        pvesh delete "/access/users/$PVE_USER"
+    fi
+    if pvesh get "/access/roles/$PVE_ROLE" >/dev/null 2>&1; then
+        pvesh delete "/access/roles/$PVE_ROLE"
+    fi
+
+    # Bash already has this script open, so it can delete it while it runs.
+    rm -rf "$SCRIPTS_DIR" /usr/local/sbin/homelab-restore /usr/local/sbin/homelab-uninstall
+
+    log "Homelab is uninstalled"
+    cat <<EOF
+
+  Still there, remove them yourself if you want:
+  - the backup files on your storages (Proxmox UI > storage > Backups)
+  - the device in the Tailscale admin console, if you used Tailscale
+  - the Netflix theme in Jellyfin (Dashboard > General > Custom CSS)
+  - the media stack container and the NAS mount, if you installed them
+
+EOF
+}
+
 main() {
+    if [[ -n "$UNINSTALL" ]]; then
+        uninstall
+        return
+    fi
     if [[ -n "$UPGRADE" ]]; then
         upgrade
         return
