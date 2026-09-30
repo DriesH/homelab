@@ -15,6 +15,7 @@ import (
 	"homelab/internal/jellyfin"
 	"homelab/internal/proxmox"
 	"homelab/internal/selfupdate"
+	"homelab/internal/tailscale"
 	"homelab/internal/updates"
 )
 
@@ -67,6 +68,14 @@ type SelfUpdate interface {
 	SaveSettings(input selfupdate.SettingsInput) error
 }
 
+type Tailscale interface {
+	Status(ctx context.Context) tailscale.View
+	Connect(background context.Context, authKey string) error
+	Logout(ctx context.Context) error
+	SetServe(ctx context.Context, enabled bool) error
+	SaveSettings(ctx context.Context, settings tailscale.Settings) error
+}
+
 type Options struct {
 	Auth       *auth.Service
 	Proxmox    Proxmox
@@ -75,6 +84,7 @@ type Options struct {
 	Jellyfin   Jellyfin
 	Health     Health
 	SelfUpdate SelfUpdate
+	Tailscale  Tailscale
 	// Background is the context for work that outlives a request, like updates.
 	Background context.Context
 	Web        fs.FS
@@ -116,6 +126,11 @@ func New(options Options) http.Handler {
 	mux.Handle("POST /api/self-update/check", s.requireSession(http.HandlerFunc(s.selfUpdateCheck)))
 	mux.Handle("POST /api/self-update/install", s.requireSession(http.HandlerFunc(s.selfUpdateInstall)))
 	mux.Handle("PUT /api/self-update/settings", s.requireSession(http.HandlerFunc(s.selfUpdateSettings)))
+	mux.Handle("GET /api/tailscale", s.requireSession(http.HandlerFunc(s.tailscaleStatus)))
+	mux.Handle("POST /api/tailscale/connect", s.requireSession(http.HandlerFunc(s.tailscaleConnect)))
+	mux.Handle("POST /api/tailscale/logout", s.requireSession(http.HandlerFunc(s.tailscaleLogout)))
+	mux.Handle("PUT /api/tailscale/serve", s.requireSession(http.HandlerFunc(s.tailscaleServe)))
+	mux.Handle("PUT /api/tailscale/settings", s.requireSession(http.HandlerFunc(s.tailscaleSettings)))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 	})

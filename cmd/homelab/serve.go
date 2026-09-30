@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -23,6 +24,7 @@ import (
 	"homelab/internal/proxmox"
 	"homelab/internal/selfupdate"
 	"homelab/internal/server"
+	"homelab/internal/tailscale"
 	"homelab/internal/tlsca"
 	"homelab/internal/updates"
 	"homelab/web"
@@ -100,6 +102,15 @@ func serve() error {
 	}
 	go selfUpdateService.Run(ctx)
 
+	tailscaleService, err := tailscale.New(tailscale.Options{
+		DataDir: cfg.DataDir,
+		Backend: serveBackend(cfg),
+		Logger:  logger,
+	})
+	if err != nil {
+		return err
+	}
+
 	authService := auth.NewService(admin)
 	if err := authService.PersistTo(filepath.Join(cfg.DataDir, "sessions.json")); err != nil {
 		return err
@@ -113,6 +124,7 @@ func serve() error {
 		Jellyfin:      jellyfinService,
 		Health:        healthService,
 		SelfUpdate:    selfUpdateService,
+		Tailscale:     tailscaleService,
 		Background:    ctx,
 		Web:           webFS,
 		SecureCookies: !cfg.Dev,
@@ -141,6 +153,25 @@ func serve() error {
 	group.Go(func() error { return run(ctx, httpServer) })
 
 	return group.Wait()
+}
+
+// serveBackend is the local address that Tailscale Serve forwards to. The
+// manager's certificate is only for its LAN name, so Serve must not check it.
+func serveBackend(cfg config.Config) string {
+	if cfg.Dev {
+		return "http://127.0.0.1:" + port(cfg.HTTPAddr)
+	}
+
+	return "https+insecure://127.0.0.1:" + port(cfg.HTTPSAddr)
+}
+
+func port(addr string) string {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+
+	return port
 }
 
 // redirectHandler sends everything to HTTPS, except the CA certificate that
