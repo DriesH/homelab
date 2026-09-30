@@ -8,21 +8,23 @@ import (
 
 // Resource is one row of /cluster/resources. Which fields are set depends on Type.
 type Resource struct {
-	ID       string  `json:"id"`
-	Type     string  `json:"type"`
-	Node     string  `json:"node"`
-	VMID     int     `json:"vmid"`
-	Name     string  `json:"name"`
-	Storage  string  `json:"storage"`
-	Status   string  `json:"status"`
-	Template int     `json:"template"`
-	CPU      float64 `json:"cpu"`
-	MaxCPU   float64 `json:"maxcpu"`
-	Mem      int64   `json:"mem"`
-	MaxMem   int64   `json:"maxmem"`
-	Disk     int64   `json:"disk"`
-	MaxDisk  int64   `json:"maxdisk"`
-	Uptime   int64   `json:"uptime"`
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Node     string `json:"node"`
+	VMID     int    `json:"vmid"`
+	Name     string `json:"name"`
+	Storage  string `json:"storage"`
+	Status   string `json:"status"`
+	Template int    `json:"template"`
+	// Tags are separated by semicolons, like "homelab;media".
+	Tags    string  `json:"tags"`
+	CPU     float64 `json:"cpu"`
+	MaxCPU  float64 `json:"maxcpu"`
+	Mem     int64   `json:"mem"`
+	MaxMem  int64   `json:"maxmem"`
+	Disk    int64   `json:"disk"`
+	MaxDisk int64   `json:"maxdisk"`
+	Uptime  int64   `json:"uptime"`
 }
 
 type NodeStatus struct {

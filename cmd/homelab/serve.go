@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"homelab/internal/agent"
+	"homelab/internal/apps"
 	"homelab/internal/auth"
 	"homelab/internal/backups"
 	"homelab/internal/config"
@@ -154,6 +155,13 @@ func serve() error {
 		Backups:    backupService,
 		Logs:       agentClient,
 		Console:    agentClient,
+		Apps: apps.New(apps.Options{
+			Agent:    agentClient,
+			Proxmox:  pve,
+			SelfVMID: cfg.SelfVMID,
+			Notify:   updateService.Notify,
+			Logger:   logger,
+		}),
 		SettingsFile: &settingsfile.Service{
 			Updates:    updateService,
 			Health:     healthService,

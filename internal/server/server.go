@@ -12,6 +12,7 @@ import (
 	"github.com/coder/websocket"
 
 	"homelab/internal/agent"
+	"homelab/internal/apps"
 	"homelab/internal/auth"
 	"homelab/internal/backups"
 	"homelab/internal/health"
@@ -101,6 +102,11 @@ type Backups interface {
 	Delete(ctx context.Context, volid string) error
 }
 
+type Apps interface {
+	Status(ctx context.Context) (apps.View, error)
+	Install(ctx context.Context, background context.Context, id string, answers agent.MediaStackAnswers) error
+}
+
 type SettingsFile interface {
 	Export(ctx context.Context) ([]byte, error)
 	Import(ctx context.Context, data []byte, apply bool) (settingsfile.Result, error)
@@ -118,6 +124,7 @@ type Options struct {
 	Backups    Backups
 	Logs       Logs
 	Console    Console
+	Apps       Apps
 	// SettingsFile exports and imports homelab.yaml.
 	SettingsFile SettingsFile
 	// DataDir is the folder that a data backup copies.
@@ -182,6 +189,8 @@ func New(options Options) http.Handler {
 	mux.Handle("GET /api/logs/tasks", s.requireSession(http.HandlerFunc(s.logsTasks)))
 	mux.Handle("GET /api/logs/tasks/{node}/log", s.requireSession(http.HandlerFunc(s.logsTaskLog)))
 	mux.Handle("GET /api/guests/{vmid}/console", s.requireSession(http.HandlerFunc(s.console)))
+	mux.Handle("GET /api/apps", s.requireSession(http.HandlerFunc(s.appsStatus)))
+	mux.Handle("POST /api/apps/{id}/install", s.requireSession(http.HandlerFunc(s.appsInstall)))
 	mux.Handle("GET /api/settings/export", s.requireSession(http.HandlerFunc(s.settingsExport)))
 	mux.Handle("POST /api/settings/import", s.requireSession(http.HandlerFunc(s.settingsImport)))
 	mux.Handle("POST /api/data-backup/download", s.requireSession(http.HandlerFunc(s.dataBackupDownload)))

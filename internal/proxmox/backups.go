@@ -105,6 +105,28 @@ func (c *Client) BackupStorages(ctx context.Context, node string) ([]BackupStora
 	return storages, err
 }
 
+// ContainerStorages returns the storages that can hold container disks.
+func (c *Client) ContainerStorages(ctx context.Context, node string) ([]BackupStorage, error) {
+	var storages []BackupStorage
+	err := c.get(ctx, "/nodes/"+url.PathEscape(node)+"/storage?content=rootdir&enabled=1", &storages)
+
+	return storages, err
+}
+
+type Interface struct {
+	Name string `json:"name"`
+	// Inet is the IPv4 address with its prefix, like 192.168.1.50/24.
+	Inet string `json:"inet"`
+}
+
+// ContainerInterfaces returns the network interfaces of a running container.
+func (c *Client) ContainerInterfaces(ctx context.Context, node string, vmid int) ([]Interface, error) {
+	var interfaces []Interface
+	err := c.get(ctx, fmt.Sprintf("/nodes/%s/lxc/%d/interfaces", url.PathEscape(node), vmid), &interfaces)
+
+	return interfaces, err
+}
+
 func (c *Client) Backups(ctx context.Context, node, storage string) ([]Backup, error) {
 	var backups []Backup
 	path := fmt.Sprintf("/nodes/%s/storage/%s/content?content=backup", url.PathEscape(node), url.PathEscape(storage))
