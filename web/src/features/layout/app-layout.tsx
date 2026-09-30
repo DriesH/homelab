@@ -19,6 +19,7 @@ const route = getRouteApi('/_app')
 
 const navigation = [
     { to: '/', label: 'Overview' },
+    { to: '/health', label: 'Health' },
     { to: '/updates', label: 'Updates' },
     { to: '/jellyfin', label: 'Jellyfin' },
 ] as const
@@ -42,15 +43,15 @@ export function AppLayout() {
                     <div className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
                         <ServerIcon className="size-4" />
                     </div>
-                    <span className="font-semibold">Homelab</span>
+                    <span className="hidden font-semibold sm:inline">Homelab</span>
 
-                    <nav className="ml-4 flex items-center gap-1 text-sm">
+                    <nav className="-mx-1 flex min-w-0 items-center gap-1 overflow-x-auto px-1 text-sm sm:ml-4">
                         {navigation.map((item) => (
                             <Link
                                 key={item.to}
                                 to={item.to}
                                 activeOptions={{ exact: true }}
-                                className="rounded-md px-3 py-1.5 text-muted-foreground transition-colors hover:text-foreground data-[status=active]:bg-muted data-[status=active]:text-foreground"
+                                className="shrink-0 rounded-md px-2 py-1.5 text-muted-foreground transition-colors hover:text-foreground data-[status=active]:bg-muted data-[status=active]:text-foreground sm:px-3"
                             >
                                 {item.label}
                             </Link>
@@ -63,7 +64,7 @@ export function AppLayout() {
                             aria-label="Account menu"
                         >
                             <UserIcon />
-                            {session.username}
+                            <span className="hidden sm:inline">{session.username}</span>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-44">
                             <DropdownMenuGroup>

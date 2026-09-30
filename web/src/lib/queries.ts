@@ -34,3 +34,9 @@ export const jellyfinQuery = queryOptions({
     queryFn: api.jellyfin,
     refetchInterval: 10000,
 })
+
+export const healthQuery = queryOptions({
+    queryKey: ['health'],
+    queryFn: api.health,
+    refetchInterval: 15000,
+})
