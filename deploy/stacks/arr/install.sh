@@ -158,14 +158,28 @@ Options=_netdev,hard,noatime
 [Install]
 WantedBy=remote-fs.target
 EOF
+    CREATED_MOUNT=1
     systemctl daemon-reload
-    systemctl enable --now "$MEDIA_MOUNT_UNIT" || die "could not mount the NAS share, check that NFS is on in UGOS (Control Panel > File Services > NFS) and that the share has an NFS permission rule for this host"
+    systemctl enable "$MEDIA_MOUNT_UNIT"
+    # Restart, not start: a mount from an earlier try keeps old NFS settings and cached answers.
+    systemctl restart "$MEDIA_MOUNT_UNIT" || die "could not mount the NAS share, check that NFS is on in UGOS (Control Panel > File Services > NFS) and that the share has an NFS permission rule for this host"
 
-    local test_file="$MEDIA_MOUNT/.homelab-write-test"
-    if ! setpriv --reuid="$HOST_CONTAINER_UID" --regid="$HOST_CONTAINER_UID" --clear-groups touch "$test_file" 2>/dev/null; then
-        die "containers can't write to the NAS share. In the share's NFS permission rule, set squash to map all users to one NAS user (all_squash) with read/write access"
-    fi
-    rm -f "$test_file"
+    check_writable
+}
+
+# check_writable makes sure that the containers can write where the apps
+# write: in the movies and series folders, or in the share when a folder
+# still has to be made.
+check_writable() {
+    local folder dir
+    for folder in "$MOVIES_FOLDER" "$SERIES_FOLDER"; do
+        dir="$MEDIA_MOUNT/$folder"
+        [[ -d "$dir" ]] || dir="$MEDIA_MOUNT"
+        if ! setpriv --reuid="$HOST_CONTAINER_UID" --regid="$HOST_CONTAINER_UID" --clear-groups touch "$dir/.homelab-write-test" 2>/dev/null; then
+            die "containers can't write to ${dir#"$MEDIA_MOUNT"/}. On the NAS, give the NFS user write access to that folder: set squash to map all users to one NAS user with read/write access, and make sure that the folder itself allows writing"
+        fi
+        rm -f "$dir/.homelab-write-test"
+    done
 }
 
 create_container() {
@@ -191,14 +205,23 @@ create_container() {
     wait_for_network "$CT_ID"
 }
 
-# on_exit removes a half-installed container after a failed install from the
-# Apps page, so the next try can start clean.
+# on_exit removes the container and the mount that a failed install from the
+# Apps page made, so the next try can start clean.
 on_exit() {
     local code=$?
-    if ((code != 0)) && [[ -n "$ANSWERS" && -n "${CREATED_CT:-}" ]]; then
+    if ((code == 0)) || [[ -z "$ANSWERS" ]]; then
+        return
+    fi
+    if [[ -n "${CREATED_CT:-}" ]]; then
         log "The install failed, removing container $CREATED_CT"
         pct stop "$CREATED_CT" >/dev/null 2>&1 || true
         pct destroy "$CREATED_CT" --purge 1 || true
+    fi
+    if [[ -n "${CREATED_MOUNT:-}" ]]; then
+        log "Removing the mount of the NAS share"
+        systemctl disable --now "$MEDIA_MOUNT_UNIT" >/dev/null 2>&1 || true
+        rm -f "/etc/systemd/system/$MEDIA_MOUNT_UNIT"
+        systemctl daemon-reload || true
     fi
 }
 
