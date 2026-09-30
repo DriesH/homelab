@@ -12,10 +12,13 @@ web:
 build: web
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BUNDLE)/homelab ./cmd/homelab
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BUNDLE)/homelab-agent ./cmd/homelab-agent
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BUNDLE)/stacks/arr/homelab-arr ./cmd/homelab-arr
 
 bundle: build
 	install -m 0755 deploy/install.sh $(BUNDLE)/install.sh
 	install -m 0644 deploy/lib.sh deploy/homelab.service deploy/homelab-agent.service $(BUNDLE)/
+	install -m 0755 deploy/stacks/arr/install.sh $(BUNDLE)/stacks/arr/install.sh
+	install -m 0644 deploy/stacks/arr/compose.yaml deploy/stacks/arr/recyclarr.yml $(BUNDLE)/stacks/arr/
 	tar -czf $(BUNDLE).tar.gz -C dist $(notdir $(BUNDLE))
 
 test:

@@ -19,6 +19,25 @@ You need Proxmox VE 9 or newer on an amd64 host.
 4. Follow the prompts to create your admin account.
 5. Download `http://homelab.local/ca.crt` and install it as a trusted root certificate on each device.
 
+## Media stack (optional)
+
+Prowlarr, Radarr, Sonarr, Bazarr, qBittorrent, Seerr, Recyclarr and FlareSolverr in one LXC with Docker. qBittorrent, Prowlarr and FlareSolverr go through ProtonVPN via Gluetun.
+
+Before you start:
+
+1. On the UGREEN NAS, turn on NFS: Control Panel > File Services > NFS.
+2. Add an NFS permission rule to the media share for the Proxmox host. Map all users to one NAS user with read/write access.
+3. Create a ProtonVPN WireGuard key with "NAT-PMP (Port Forwarding)" on.
+4. Optional: create a Jellyfin API key (Dashboard > API Keys).
+
+Then run `stacks/arr/install.sh` from the bundle as root on the Proxmox host. The installer:
+
+- mounts the NAS share on the host and shares it with the new LXC and with Jellyfin as `/data/media`;
+- keeps downloads on a local disk (`/data/downloads`);
+- connects all apps: logins, root folders, qBittorrent, Prowlarr sync, FlareSolverr, subtitles and Jellyfin libraries.
+
+After the install, finish the Seerr setup and add your indexers in Prowlarr.
+
 ## Development
 
 ```sh
