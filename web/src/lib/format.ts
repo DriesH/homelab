@@ -37,3 +37,30 @@ export function percentage(used: number, total: number) {
 
     return Math.min(100, Math.round((used / total) * 100))
 }
+
+const relativeTime = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
+
+export function formatRelative(date: string | Date) {
+    const seconds = Math.round((new Date(date).getTime() - Date.now()) / 1000)
+    const units: [Intl.RelativeTimeFormatUnit, number][] = [
+        ['day', 86400],
+        ['hour', 3600],
+        ['minute', 60],
+    ]
+
+    for (const [unit, size] of units) {
+        if (Math.abs(seconds) >= size) {
+            return relativeTime.format(Math.round(seconds / size), unit)
+        }
+    }
+
+    return 'just now'
+}
+
+export function formatDateTime(date: string | Date) {
+    return new Date(date).toLocaleString(undefined, {
+        weekday: 'long',
+        hour: '2-digit',
+        minute: '2-digit',
+    })
+}

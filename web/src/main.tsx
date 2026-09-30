@@ -5,6 +5,7 @@ import { createRouter, RouterProvider } from '@tanstack/react-router'
 
 import './index.css'
 import { ThemeProvider } from '@/components/theme-provider'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { ApiError } from '@/lib/api'
 import { sessionQuery } from '@/lib/queries'
 import { routeTree } from './routeTree.gen'
@@ -48,7 +49,9 @@ createRoot(document.getElementById('root')!).render(
     <StrictMode>
         <ThemeProvider>
             <QueryClientProvider client={queryClient}>
-                <RouterProvider router={router} />
+                <TooltipProvider delay={300}>
+                    <RouterProvider router={router} />
+                </TooltipProvider>
             </QueryClientProvider>
         </ThemeProvider>
     </StrictMode>,
