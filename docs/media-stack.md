@@ -42,6 +42,18 @@ Media stacks that were installed before you could choose the folders use `movies
 - keeps downloads on a local disk (`/data/downloads`);
 - connects all apps: logins, root folders, qBittorrent, Prowlarr sync, FlareSolverr, subtitles and Jellyfin libraries.
 
-After the install, the Apps page shows links to each app. Finish the Seerr setup first, then add your indexers in Prowlarr.
+After the install, the Apps page shows links to each app. Then add your indexers in Prowlarr.
+
+## Seerr
+
+Give a Jellyfin admin username and password in the form, and the installer does the setup of Seerr:
+
+- that Jellyfin account becomes the owner of Seerr, so you log in to Seerr with it;
+- the movie and series libraries of Jellyfin are turned on;
+- Radarr and Sonarr are added, with the quality profile from Recyclarr and your movies and series folders.
+
+Without a Jellyfin admin, open Seerr after the install and do its setup yourself. Until then, anyone on your network can open it. If Seerr is already set up, the installer leaves it alone.
+
+The Jellyfin admin password is a secret like the other passwords: it goes to the container on stdin and is never written to a file there. Seerr then makes its own Jellyfin API key.
 
 The agent checks every answer before it writes them to a file that only root can read. The installer deletes that file when it has read it.

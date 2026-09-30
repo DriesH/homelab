@@ -64,13 +64,14 @@ preflight() {
 # load_answers reads KEY=value lines. Values are only stored, never run.
 load_answers() {
     local line key value
-    JELLYFIN_API_KEY=""
+    JELLYFIN_API_KEY="" JELLYFIN_ADMIN_USERNAME="" JELLYFIN_ADMIN_PASSWORD=""
     while IFS= read -r line || [[ -n "$line" ]]; do
         [[ -z "$line" ]] && continue
         key="${line%%=*}" value="${line#*=}"
         case "$key" in
             NAS_SERVER | NAS_EXPORT | MOVIES_FOLDER | SERIES_FOLDER | WIREGUARD_PRIVATE_KEY | VPN_COUNTRIES | \
-                SUBTITLE_LANGUAGES | ARR_USERNAME | ARR_PASSWORD | JELLYFIN_API_KEY | RESTART_JELLYFIN | STORAGE | DOWNLOADS_SIZE)
+                SUBTITLE_LANGUAGES | ARR_USERNAME | ARR_PASSWORD | JELLYFIN_API_KEY | JELLYFIN_ADMIN_USERNAME | \
+                JELLYFIN_ADMIN_PASSWORD | RESTART_JELLYFIN | STORAGE | DOWNLOADS_SIZE)
                 printf -v "$key" '%s' "$value"
                 ;;
             *) die "unknown answer: $key" ;;
@@ -85,7 +86,7 @@ load_answers() {
     if [[ -n "$JELLYFIN_CTID" ]]; then
         JELLYFIN_URL="http://$(container_ip "$JELLYFIN_CTID"):8096"
     else
-        JELLYFIN_API_KEY=""
+        JELLYFIN_API_KEY="" JELLYFIN_ADMIN_USERNAME="" JELLYFIN_ADMIN_PASSWORD=""
     fi
 }
 
@@ -128,12 +129,17 @@ ask_settings() {
     ((${#ARR_PASSWORD} >= 12)) || die "password must be at least 12 characters"
 
     JELLYFIN_URL=""
-    JELLYFIN_API_KEY=""
+    JELLYFIN_API_KEY="" JELLYFIN_ADMIN_USERNAME="" JELLYFIN_ADMIN_PASSWORD=""
     if [[ -n "$JELLYFIN_CTID" ]]; then
         JELLYFIN_URL="http://$(container_ip "$JELLYFIN_CTID"):8096"
         echo "Found Jellyfin in container $JELLYFIN_CTID ($JELLYFIN_URL)."
         echo "Create an API key in Jellyfin: Dashboard > API Keys > +. Leave empty to skip."
         ask JELLYFIN_API_KEY "Jellyfin API key" "" secret
+        echo "With a Jellyfin admin, the installer also sets up Seerr. You then log in to Seerr with that account."
+        ask JELLYFIN_ADMIN_USERNAME "Jellyfin admin username (empty to skip)"
+        if [[ -n "$JELLYFIN_ADMIN_USERNAME" ]]; then
+            ask JELLYFIN_ADMIN_PASSWORD "Jellyfin admin password" "" secret
+        fi
     fi
 }
 
@@ -277,6 +283,7 @@ MOVIES_FOLDER=$MOVIES_FOLDER
 SERIES_FOLDER=$SERIES_FOLDER
 JELLYFIN_URL=$JELLYFIN_URL
 JELLYFIN_API_KEY=$JELLYFIN_API_KEY
+JELLYFIN_ADMIN_USERNAME=$JELLYFIN_ADMIN_USERNAME
 EOF
     pct push "$CT_ID" "$env_file" /opt/arr/.env --perms 0600
 }
@@ -340,7 +347,8 @@ share_media_with_jellyfin() {
 configure_stack() {
     log "Connecting the apps"
     # The full path, because pct sets PATH to /sbin:/bin:/usr/sbin:/usr/bin inside the container.
-    printf '%s\n' "$ARR_PASSWORD" | pct exec "$CT_ID" -- /usr/local/bin/homelab-arr configure
+    # The passwords go on stdin, so they never end up in a file in the container.
+    printf '%s\n%s\n' "$ARR_PASSWORD" "$JELLYFIN_ADMIN_PASSWORD" | pct exec "$CT_ID" -- /usr/local/bin/homelab-arr configure
 }
 
 main() {

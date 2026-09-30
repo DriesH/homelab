@@ -72,6 +72,8 @@ function MediaStackForm({
                 username: defaults.username,
                 password: '',
                 jellyfinApiKey: '',
+                jellyfinAdminUsername: '',
+                jellyfinAdminPassword: '',
                 restartJellyfin: true,
                 storage: defaults.storage,
                 downloadsSize: defaults.downloadsSize,
@@ -242,6 +244,36 @@ function MediaStackForm({
                             placeholder={saved?.hasJellyfinApiKey ? keepSaved : undefined}
                         />
                     </Field>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        <Field
+                            id="jellyfin-admin"
+                            label="Admin username (optional)"
+                            help="With a Jellyfin admin, Homelab also sets up Seerr. You log in to Seerr with this account."
+                        >
+                            <Input
+                                id="jellyfin-admin"
+                                autoComplete="off"
+                                value={answers.jellyfinAdminUsername}
+                                onChange={(event) => set('jellyfinAdminUsername', event.target.value.trim())}
+                            />
+                        </Field>
+                        <Field id="jellyfin-admin-password" label="Admin password">
+                            <Input
+                                id="jellyfin-admin-password"
+                                type="password"
+                                autoComplete="off"
+                                value={answers.jellyfinAdminPassword}
+                                onChange={(event) => set('jellyfinAdminPassword', event.target.value)}
+                                placeholder={
+                                    saved?.hasJellyfinAdminPassword &&
+                                    answers.jellyfinAdminUsername === saved.answers.jellyfinAdminUsername
+                                        ? keepSaved
+                                        : undefined
+                                }
+                                disabled={!answers.jellyfinAdminUsername}
+                            />
+                        </Field>
+                    </div>
                     <label className="flex items-center justify-between gap-4 text-sm">
                         <span>
                             Restart Jellyfin

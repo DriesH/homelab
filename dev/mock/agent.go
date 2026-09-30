@@ -161,6 +161,9 @@ func (f *fakeAgent) installApp(w http.ResponseWriter, r *http.Request) {
 		if answers.JellyfinAPIKey == "" {
 			answers.JellyfinAPIKey = f.saved.JellyfinAPIKey
 		}
+		if answers.JellyfinAdminPassword == "" && answers.JellyfinAdminUsername == f.saved.JellyfinAdminUsername {
+			answers.JellyfinAdminPassword = f.saved.JellyfinAdminPassword
+		}
 	}
 	f.mu.Unlock()
 	f.start(w, r.PathValue("app"), answers)
@@ -186,9 +189,14 @@ func (f *fakeAgent) savedAnswers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	answers := *f.saved
-	hasKey := answers.JellyfinAPIKey != ""
-	answers.WireGuardPrivateKey, answers.Password, answers.JellyfinAPIKey = "", "", ""
-	writeJSON(w, agent.SavedAnswers{Answers: answers, HasJellyfinAPIKey: hasKey, Until: f.install.StartedAt.Add(agent.SavedAnswersTTL)})
+	view := agent.SavedAnswers{
+		HasJellyfinAPIKey:        answers.JellyfinAPIKey != "",
+		HasJellyfinAdminPassword: answers.JellyfinAdminPassword != "",
+		Until:                    f.install.StartedAt.Add(agent.SavedAnswersTTL),
+	}
+	answers.WireGuardPrivateKey, answers.Password, answers.JellyfinAPIKey, answers.JellyfinAdminPassword = "", "", "", ""
+	view.Answers = answers
+	writeJSON(w, view)
 }
 
 func (f *fakeAgent) start(w http.ResponseWriter, app string, answers agent.MediaStackAnswers) {
@@ -219,6 +227,9 @@ func (f *fakeAgent) playInstall(answers agent.MediaStackAnswers) {
 		"==> Installing Docker",
 		"==> Starting the stack (the first image download takes a few minutes)",
 		"==> Waiting for the VPN",
+	}
+	if answers.JellyfinAdminUsername != "" {
+		steps = append(steps, "==> Configuring Seerr")
 	}
 	for _, step := range steps {
 		time.Sleep(time.Second)

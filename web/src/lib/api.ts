@@ -303,6 +303,7 @@ export type AppInstall = {
 export type SavedAnswers = {
     answers: MediaStackAnswers
     hasJellyfinApiKey: boolean
+    hasJellyfinAdminPassword: boolean
     until: string
 }
 
@@ -345,6 +346,8 @@ export type MediaStackAnswers = {
     username: string
     password: string
     jellyfinApiKey: string
+    jellyfinAdminUsername: string
+    jellyfinAdminPassword: string
     restartJellyfin: boolean
     storage: string
     downloadsSize: number

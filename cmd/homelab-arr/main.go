@@ -1,6 +1,9 @@
 // homelab-arr runs inside the media LXC and connects the apps of the arr stack.
 //
-//	homelab-arr configure --env /opt/arr/.env < password
+//	homelab-arr configure --env /opt/arr/.env < passwords
+//
+// The first line on stdin is the password for the apps. An optional second
+// line is the password of the Jellyfin admin, for the setup of Seerr.
 package main
 
 import (
@@ -20,7 +23,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] != "configure" {
-		fmt.Fprintln(os.Stderr, "usage: homelab-arr configure [--env FILE] [--data-dir DIR] [--bazarr-config FILE] < password")
+		fmt.Fprintln(os.Stderr, "usage: homelab-arr configure [--env FILE] [--data-dir DIR] [--bazarr-config FILE] < passwords")
 		os.Exit(2)
 	}
 
@@ -42,31 +45,36 @@ func configure(args []string) error {
 		return err
 	}
 
-	// The password comes on stdin so it never lands in a file or process list.
-	password, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	// The passwords come on stdin so they never land in a file or process list.
+	stdin := bufio.NewReader(os.Stdin)
+	password, err := stdin.ReadString('\n')
 	if err != nil && password == "" {
 		return errors.New("pass the admin password on stdin")
 	}
 	password = strings.TrimRight(password, "\r\n")
+	jellyfinAdminPassword, _ := stdin.ReadString('\n')
+	jellyfinAdminPassword = strings.TrimRight(jellyfinAdminPassword, "\r\n")
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	err = arr.Configure(ctx, arr.Config{
-		Username:            env["ARR_USERNAME"],
-		Password:            password,
-		RadarrAPIKey:        env["RADARR_API_KEY"],
-		SonarrAPIKey:        env["SONARR_API_KEY"],
-		ProwlarrAPIKey:      env["PROWLARR_API_KEY"],
-		JellyfinURL:         env["JELLYFIN_URL"],
-		JellyfinInternalURL: env["JELLYFIN_INTERNAL_URL"],
-		JellyfinAPIKey:      env["JELLYFIN_API_KEY"],
-		SubtitleLanguages:   strings.Split(env["SUBTITLE_LANGUAGES"], ","),
-		MoviesFolder:        env["MOVIES_FOLDER"],
-		SeriesFolder:        env["SERIES_FOLDER"],
-		DataDir:             *dataDir,
-		BazarrConfigPath:    *bazarrConfig,
-		Endpoints:           arr.DefaultEndpoints,
+		Username:              env["ARR_USERNAME"],
+		Password:              password,
+		RadarrAPIKey:          env["RADARR_API_KEY"],
+		SonarrAPIKey:          env["SONARR_API_KEY"],
+		ProwlarrAPIKey:        env["PROWLARR_API_KEY"],
+		JellyfinURL:           env["JELLYFIN_URL"],
+		JellyfinInternalURL:   env["JELLYFIN_INTERNAL_URL"],
+		JellyfinAPIKey:        env["JELLYFIN_API_KEY"],
+		JellyfinAdminUsername: env["JELLYFIN_ADMIN_USERNAME"],
+		JellyfinAdminPassword: jellyfinAdminPassword,
+		SubtitleLanguages:     strings.Split(env["SUBTITLE_LANGUAGES"], ","),
+		MoviesFolder:          env["MOVIES_FOLDER"],
+		SeriesFolder:          env["SERIES_FOLDER"],
+		DataDir:               *dataDir,
+		BazarrConfigPath:      *bazarrConfig,
+		Endpoints:             arr.DefaultEndpoints,
 		QBittorrentTempPassword: func(ctx context.Context) (string, error) {
 			return qbittorrentTempPassword(ctx)
 		},

@@ -38,14 +38,15 @@ var (
 )
 
 var (
-	hostPattern      = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9.-]{0,252})$`)
-	exportPattern    = regexp.MustCompile(`^/[A-Za-z0-9._/-]{0,255}$`)
-	countriesPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z ]{1,40}(,[A-Za-z][A-Za-z ]{1,40}){0,9}$`)
-	languagesPattern = regexp.MustCompile(`^[a-z]{2}(,[a-z]{2}){0,9}$`)
-	usernamePattern  = regexp.MustCompile(`^[A-Za-z0-9._-]{1,32}$`)
-	apiKeyPattern    = regexp.MustCompile(`^[a-f0-9]{32}$`)
-	ansiPattern      = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-	appResultPattern = regexp.MustCompile(`(?m)^HOMELAB app (\w+) (\d+) (\S+)$`)
+	hostPattern         = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9.-]{0,252})$`)
+	exportPattern       = regexp.MustCompile(`^/[A-Za-z0-9._/-]{0,255}$`)
+	countriesPattern    = regexp.MustCompile(`^[A-Za-z][A-Za-z ]{1,40}(,[A-Za-z][A-Za-z ]{1,40}){0,9}$`)
+	languagesPattern    = regexp.MustCompile(`^[a-z]{2}(,[a-z]{2}){0,9}$`)
+	usernamePattern     = regexp.MustCompile(`^[A-Za-z0-9._-]{1,32}$`)
+	apiKeyPattern       = regexp.MustCompile(`^[a-f0-9]{32}$`)
+	jellyfinUserPattern = regexp.MustCompile(`^[A-Za-z0-9._@-]([A-Za-z0-9 ._@-]{0,62}[A-Za-z0-9._@-])?$`)
+	ansiPattern         = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	appResultPattern    = regexp.MustCompile(`(?m)^HOMELAB app (\w+) (\d+) (\S+)$`)
 )
 
 // MediaStackAnswers are the questions of stacks/arr/install.sh. Every value
@@ -62,9 +63,13 @@ type MediaStackAnswers struct {
 	Username            string `json:"username"`
 	Password            string `json:"password"`
 	// JellyfinAPIKey is optional. With it, the installer adds the libraries to Jellyfin.
-	JellyfinAPIKey  string `json:"jellyfinApiKey"`
-	RestartJellyfin bool   `json:"restartJellyfin"`
-	Storage         string `json:"storage"`
+	JellyfinAPIKey string `json:"jellyfinApiKey"`
+	// JellyfinAdminUsername and JellyfinAdminPassword are optional. With them,
+	// the installer also does the setup of Seerr.
+	JellyfinAdminUsername string `json:"jellyfinAdminUsername"`
+	JellyfinAdminPassword string `json:"jellyfinAdminPassword"`
+	RestartJellyfin       bool   `json:"restartJellyfin"`
+	Storage               string `json:"storage"`
 	// DownloadsSize is the size of the downloads disk in GB.
 	DownloadsSize int `json:"downloadsSize"`
 }
@@ -93,6 +98,12 @@ func (a MediaStackAnswers) Validate() error {
 		return invalid("the password must be 12 to 128 characters")
 	case a.JellyfinAPIKey != "" && !apiKeyPattern.MatchString(a.JellyfinAPIKey):
 		return invalid("the Jellyfin API key must be 32 characters (0-9 and a-f)")
+	case a.JellyfinAdminUsername != "" && !jellyfinUserPattern.MatchString(a.JellyfinAdminUsername):
+		return invalid("the Jellyfin admin username can have letters, digits, spaces, dots, dashes, underscores and @")
+	case (a.JellyfinAdminUsername == "") != (a.JellyfinAdminPassword == ""):
+		return invalid("give both the Jellyfin admin username and password, or neither")
+	case len(a.JellyfinAdminPassword) > 256 || strings.ContainsFunc(a.JellyfinAdminPassword, unicode.IsControl):
+		return invalid("the Jellyfin admin password can't have line breaks")
 	case !storageID.MatchString(a.Storage):
 		return invalid("invalid storage")
 	case a.DownloadsSize < 10 || a.DownloadsSize > 10000:
@@ -124,6 +135,8 @@ func (a MediaStackAnswers) file() string {
 		"ARR_USERNAME=" + a.Username,
 		"ARR_PASSWORD=" + a.Password,
 		"JELLYFIN_API_KEY=" + a.JellyfinAPIKey,
+		"JELLYFIN_ADMIN_USERNAME=" + a.JellyfinAdminUsername,
+		"JELLYFIN_ADMIN_PASSWORD=" + a.JellyfinAdminPassword,
 		"RESTART_JELLYFIN=" + restart,
 		"STORAGE=" + a.Storage,
 		"DOWNLOADS_SIZE=" + strconv.Itoa(a.DownloadsSize),
@@ -144,7 +157,9 @@ type InstallRequest struct {
 type SavedAnswers struct {
 	Answers           MediaStackAnswers `json:"answers"`
 	HasJellyfinAPIKey bool              `json:"hasJellyfinApiKey"`
-	Until             time.Time         `json:"until"`
+	// HasJellyfinAdminPassword is set when the saved answers have a Jellyfin admin password.
+	HasJellyfinAdminPassword bool      `json:"hasJellyfinAdminPassword"`
+	Until                    time.Time `json:"until"`
 }
 
 type savedFile struct {
@@ -218,6 +233,10 @@ func (i *AppInstaller) Install(app string, request InstallRequest) error {
 		}
 		if answers.JellyfinAPIKey == "" {
 			answers.JellyfinAPIKey = saved.JellyfinAPIKey
+		}
+		// Only for the same admin: a new username needs its own password.
+		if answers.JellyfinAdminPassword == "" && answers.JellyfinAdminUsername == saved.JellyfinAdminUsername {
+			answers.JellyfinAdminPassword = saved.JellyfinAdminPassword
 		}
 	}
 
@@ -352,8 +371,12 @@ func (i *AppInstaller) Saved(app string) (*SavedAnswers, error) {
 	}
 
 	answers := file.Answers
-	view := &SavedAnswers{HasJellyfinAPIKey: answers.JellyfinAPIKey != "", Until: file.SavedAt.Add(SavedAnswersTTL)}
-	answers.WireGuardPrivateKey, answers.Password, answers.JellyfinAPIKey = "", "", ""
+	view := &SavedAnswers{
+		HasJellyfinAPIKey:        answers.JellyfinAPIKey != "",
+		HasJellyfinAdminPassword: answers.JellyfinAdminPassword != "",
+		Until:                    file.SavedAt.Add(SavedAnswersTTL),
+	}
+	answers.WireGuardPrivateKey, answers.Password, answers.JellyfinAPIKey, answers.JellyfinAdminPassword = "", "", "", ""
 	view.Answers = answers
 
 	return view, nil
