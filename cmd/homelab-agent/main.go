@@ -70,6 +70,11 @@ func run(socketPath string, socketGID int, logger *slog.Logger) error {
 	upgrader := agent.NewUpgrader(version)
 	mux.HandleFunc("POST /v1/upgrade", startUpgrade(upgrader, logger))
 	mux.HandleFunc("GET /v1/upgrade", upgradeStatus(upgrader))
+	apps := agent.NewAppInstaller()
+	mux.HandleFunc("POST /v1/apps/{app}/install", installApp(apps, logger))
+	mux.HandleFunc("GET /v1/apps/install", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, apps.Status())
+	})
 
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 
@@ -171,6 +176,37 @@ func startUpgrade(upgrader *agent.Upgrader, logger *slog.Logger) http.HandlerFun
 func upgradeStatus(upgrader *agent.Upgrader) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, upgrader.Status())
+	}
+}
+
+func installApp(apps *agent.AppInstaller, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var answers agent.MediaStackAnswers
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&answers); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		app := r.PathValue("app")
+		err := apps.Install(app, answers)
+		switch {
+		case errors.Is(err, agent.ErrInvalidAnswers), errors.Is(err, agent.ErrUnknownApp):
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		case errors.Is(err, agent.ErrAppInstallRunning):
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		case errors.Is(err, agent.ErrAppNotAvailable):
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		case err != nil:
+			logger.Error("app install failed to start", "app", app, "error", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		logger.Info("app install started", "app", app)
+		w.WriteHeader(http.StatusAccepted)
 	}
 }
 

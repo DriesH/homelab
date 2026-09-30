@@ -212,6 +212,17 @@ func (c *Client) StartUpgrade(ctx context.Context, bundle io.Reader, signature r
 	return nil
 }
 
+func (c *Client) InstallApp(ctx context.Context, app string, answers MediaStackAnswers) error {
+	return c.do(ctx, http.MethodPost, "/v1/apps/"+url.PathEscape(app)+"/install", answers, nil)
+}
+
+func (c *Client) AppInstallStatus(ctx context.Context) (AppInstallStatus, error) {
+	var status AppInstallStatus
+	err := c.do(ctx, http.MethodGet, "/v1/apps/install", nil, &status)
+
+	return status, err
+}
+
 func (c *Client) UpgradeStatus(ctx context.Context) (UpgradeStatus, error) {
 	var status UpgradeStatus
 	err := c.do(ctx, http.MethodGet, "/v1/upgrade", nil, &status)

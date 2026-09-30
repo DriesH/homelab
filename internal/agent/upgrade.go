@@ -247,7 +247,7 @@ func writeBundleFile(path string, content io.Reader, mode os.FileMode) error {
 	return file.Close()
 }
 
-func writeStatus(path string, status UpgradeStatus) error {
+func writeStatus[T UpgradeStatus | AppInstallStatus](path string, status T) error {
 	data, err := json.Marshal(status)
 	if err != nil {
 		return err
