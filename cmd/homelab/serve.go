@@ -18,6 +18,7 @@ import (
 	"homelab/internal/agent"
 	"homelab/internal/auth"
 	"homelab/internal/config"
+	"homelab/internal/jellyfin"
 	"homelab/internal/proxmox"
 	"homelab/internal/server"
 	"homelab/internal/tlsca"
@@ -67,11 +68,17 @@ func serve() error {
 	}
 	go updateService.RunScheduler(ctx)
 
+	jellyfinService, err := jellyfin.NewService(cfg.DataDir)
+	if err != nil {
+		return err
+	}
+
 	handler := server.New(server.Options{
 		Auth:          auth.NewService(admin),
 		Proxmox:       pve,
 		Agent:         agentClient,
 		Updates:       updateService,
+		Jellyfin:      jellyfinService,
 		Background:    ctx,
 		Web:           webFS,
 		SecureCookies: !cfg.Dev,

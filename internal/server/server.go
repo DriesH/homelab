@@ -11,6 +11,7 @@ import (
 
 	"homelab/internal/agent"
 	"homelab/internal/auth"
+	"homelab/internal/jellyfin"
 	"homelab/internal/proxmox"
 	"homelab/internal/updates"
 )
@@ -41,11 +42,19 @@ type Updates interface {
 	SendTestNotification(ctx context.Context) error
 }
 
+type Jellyfin interface {
+	Status(ctx context.Context) jellyfin.View
+	SaveSettings(ctx context.Context, input jellyfin.Settings) error
+	SetTheme(ctx context.Context, enabled bool) error
+	Image(ctx context.Context, itemID, imageType string, maxWidth int) (*http.Response, error)
+}
+
 type Options struct {
-	Auth    *auth.Service
-	Proxmox Proxmox
-	Agent   Agent
-	Updates Updates
+	Auth     *auth.Service
+	Proxmox  Proxmox
+	Agent    Agent
+	Updates  Updates
+	Jellyfin Jellyfin
 	// Background is the context for work that outlives a request, like updates.
 	Background context.Context
 	Web        fs.FS
@@ -74,6 +83,10 @@ func New(options Options) http.Handler {
 	mux.Handle("POST /api/updates/guests/{vmid}", s.requireSession(http.HandlerFunc(s.updatesGuest)))
 	mux.Handle("PUT /api/updates/settings", s.requireSession(http.HandlerFunc(s.updatesSettings)))
 	mux.Handle("POST /api/updates/test-notification", s.requireSession(http.HandlerFunc(s.updatesTestNotification)))
+	mux.Handle("GET /api/jellyfin", s.requireSession(http.HandlerFunc(s.jellyfinStatus)))
+	mux.Handle("PUT /api/jellyfin/settings", s.requireSession(http.HandlerFunc(s.jellyfinSettings)))
+	mux.Handle("PUT /api/jellyfin/theme", s.requireSession(http.HandlerFunc(s.jellyfinTheme)))
+	mux.Handle("GET /api/jellyfin/items/{id}/image", s.requireSession(http.HandlerFunc(s.jellyfinImage)))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 	})
