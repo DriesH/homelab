@@ -4,7 +4,7 @@ import { ExternalLinkIcon, Loader2Icon, TriangleAlertIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -53,10 +53,10 @@ export function ConnectCard({ tailscale }: { tailscale: Tailscale }) {
                         <p className="text-sm">
                             Log in to Tailscale and approve this device. This page updates by itself.
                         </p>
-                        <Button render={<a href={tailscale.authUrl} target="_blank" rel="noreferrer" />}>
+                        <a href={tailscale.authUrl} target="_blank" rel="noreferrer" className={buttonVariants()}>
                             Open the Tailscale login
                             <ExternalLinkIcon />
-                        </Button>
+                        </a>
                     </div>
                 ) : waiting ? (
                     <p className="flex items-center gap-2 text-sm text-muted-foreground">

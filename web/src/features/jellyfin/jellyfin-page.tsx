@@ -3,7 +3,7 @@ import { AlertTriangleIcon, ExternalLinkIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button'
 import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
@@ -53,10 +53,10 @@ export function JellyfinPage() {
                         {data.serverName ? `${data.serverName} · version ${data.version}` : data.url}
                     </p>
                 </div>
-                <Button variant="outline" render={<a href={data.url} target="_blank" rel="noreferrer" />}>
+                <a href={data.url} target="_blank" rel="noreferrer" className={buttonVariants({ variant: 'outline' })}>
                     Open Jellyfin
                     <ExternalLinkIcon />
-                </Button>
+                </a>
             </header>
 
             {data.error ? (
