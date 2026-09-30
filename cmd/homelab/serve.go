@@ -21,6 +21,7 @@ import (
 	"homelab/internal/health"
 	"homelab/internal/jellyfin"
 	"homelab/internal/proxmox"
+	"homelab/internal/selfupdate"
 	"homelab/internal/server"
 	"homelab/internal/tlsca"
 	"homelab/internal/updates"
@@ -86,13 +87,32 @@ func serve() error {
 	}
 	go healthService.Run(ctx)
 
+	selfUpdateService, err := selfupdate.New(selfupdate.Options{
+		DataDir: cfg.DataDir,
+		Version: version,
+		Agent:   agentClient,
+		APIURL:  cfg.GitHubAPIURL,
+		Notify:  updateService.Notify,
+		Logger:  logger,
+	})
+	if err != nil {
+		return err
+	}
+	go selfUpdateService.Run(ctx)
+
+	authService := auth.NewService(admin)
+	if err := authService.PersistTo(filepath.Join(cfg.DataDir, "sessions.json")); err != nil {
+		return err
+	}
+
 	handler := server.New(server.Options{
-		Auth:          auth.NewService(admin),
+		Auth:          authService,
 		Proxmox:       pve,
 		Agent:         agentClient,
 		Updates:       updateService,
 		Jellyfin:      jellyfinService,
 		Health:        healthService,
+		SelfUpdate:    selfUpdateService,
 		Background:    ctx,
 		Web:           webFS,
 		SecureCookies: !cfg.Dev,

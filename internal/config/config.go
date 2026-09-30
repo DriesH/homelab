@@ -14,6 +14,8 @@ type Config struct {
 	AgentSocket string
 	// SelfVMID is the manager's own container, 0 when unknown.
 	SelfVMID int
+	// GitHubAPIURL is where the manager looks for new releases. Tests change it.
+	GitHubAPIURL string
 	// Dev serves plain HTTP on HTTPAddr so the Vite dev server can proxy to it.
 	Dev     bool
 	Proxmox Proxmox
@@ -29,13 +31,14 @@ type Proxmox struct {
 
 func Load() (Config, error) {
 	cfg := Config{
-		Hostname:    env("HOMELAB_HOSTNAME", "homelab.local"),
-		HTTPSAddr:   env("HOMELAB_HTTPS_ADDR", ":443"),
-		HTTPAddr:    env("HOMELAB_HTTP_ADDR", ":80"),
-		DataDir:     DataDir(),
-		AgentSocket: env("HOMELAB_AGENT_SOCKET", "/mnt/homelab-agent/agent.sock"),
-		Dev:         os.Getenv("HOMELAB_DEV") == "1",
-		SelfVMID:    envInt("HOMELAB_SELF_VMID"),
+		Hostname:     env("HOMELAB_HOSTNAME", "homelab.local"),
+		HTTPSAddr:    env("HOMELAB_HTTPS_ADDR", ":443"),
+		HTTPAddr:     env("HOMELAB_HTTP_ADDR", ":80"),
+		DataDir:      DataDir(),
+		AgentSocket:  env("HOMELAB_AGENT_SOCKET", "/mnt/homelab-agent/agent.sock"),
+		Dev:          os.Getenv("HOMELAB_DEV") == "1",
+		GitHubAPIURL: env("HOMELAB_GITHUB_API_URL", "https://api.github.com"),
+		SelfVMID:     envInt("HOMELAB_SELF_VMID"),
 		Proxmox: Proxmox{
 			URL:         os.Getenv("PROXMOX_URL"),
 			TokenID:     os.Getenv("PROXMOX_TOKEN_ID"),
