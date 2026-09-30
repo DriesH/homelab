@@ -1,0 +1,13 @@
+[Unit]
+Description=Homelab host agent
+After=network.target
+# The manager LXC bind-mounts the socket directory, so start before guests.
+Before=pve-guests.service
+
+[Service]
+ExecStart=/usr/local/bin/homelab-agent --socket /var/lib/homelab-agent/socket/agent.sock --socket-gid @SOCKET_GID@
+Restart=on-failure
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
