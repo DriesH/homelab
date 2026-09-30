@@ -1,6 +1,15 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getRouteApi, Link, Outlet, useNavigate } from '@tanstack/react-router'
-import { ArrowUpCircleIcon, LogOutIcon, MonitorIcon, MoonIcon, ServerIcon, SunIcon, UserIcon } from 'lucide-react'
+import { getRouteApi, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
+import {
+    ArrowUpCircleIcon,
+    LogOutIcon,
+    MenuIcon,
+    MonitorIcon,
+    MoonIcon,
+    ServerIcon,
+    SunIcon,
+    UserIcon,
+} from 'lucide-react'
 
 import { useTheme } from '@/components/theme-provider'
 import { Badge } from '@/components/ui/badge'
@@ -24,6 +33,7 @@ const navigation = [
     { to: '/', label: 'Overview' },
     { to: '/health', label: 'Health' },
     { to: '/updates', label: 'Updates' },
+    { to: '/backups', label: 'Backups' },
     { to: '/jellyfin', label: 'Jellyfin' },
     { to: '/tailscale', label: 'Tailscale' },
 ] as const
@@ -34,6 +44,8 @@ export function AppLayout() {
     const queryClient = useQueryClient()
     const navigate = useNavigate()
     const { data: selfUpdate } = useQuery(selfUpdateQuery)
+    const pathname = useRouterState({ select: (state) => state.location.pathname })
+    const currentPage = navigation.find((item) => item.to === pathname)?.label ?? 'Menu'
     useReloadOnNewVersion()
 
     async function logout() {
@@ -51,18 +63,33 @@ export function AppLayout() {
                     </div>
                     <span className="hidden font-semibold sm:inline">Homelab</span>
                     {selfUpdate && (
-                        <span className="hidden font-mono text-xs text-muted-foreground md:inline">
+                        <span className="hidden font-mono text-xs text-muted-foreground lg:inline">
                             {selfUpdate.version}
                         </span>
                     )}
 
-                    <nav className="-mx-1 flex min-w-0 items-center gap-1 overflow-x-auto px-1 text-sm sm:ml-4">
+                    {/* Phones get a menu, because all pages don't fit in one row. */}
+                    <DropdownMenu>
+                        <DropdownMenuTrigger render={<Button variant="ghost" size="sm" className="md:hidden" />}>
+                            <MenuIcon />
+                            {currentPage}
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-44">
+                            {navigation.map((item) => (
+                                <DropdownMenuItem key={item.to} render={<Link to={item.to} />}>
+                                    {item.label}
+                                </DropdownMenuItem>
+                            ))}
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+
+                    <nav className="ml-4 hidden min-w-0 items-center gap-1 text-sm md:flex">
                         {navigation.map((item) => (
                             <Link
                                 key={item.to}
                                 to={item.to}
                                 activeOptions={{ exact: true }}
-                                className="shrink-0 rounded-md px-2 py-1.5 text-muted-foreground transition-colors hover:text-foreground data-[status=active]:bg-muted data-[status=active]:text-foreground sm:px-3"
+                                className="shrink-0 rounded-md px-3 py-1.5 text-muted-foreground transition-colors hover:text-foreground data-[status=active]:bg-muted data-[status=active]:text-foreground"
                             >
                                 {item.label}
                             </Link>

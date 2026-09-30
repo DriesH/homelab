@@ -56,3 +56,9 @@ export const tailscaleQuery = queryOptions({
     // Poll fast during a login, so the page sees the login link and the result quickly.
     refetchInterval: (query) => (query.state.data?.connecting ? 2000 : 15000),
 })
+
+export const backupsQuery = queryOptions({
+    queryKey: ['backups'],
+    queryFn: api.backups,
+    refetchInterval: (query) => (query.state.data?.busy ? 3000 : 30000),
+})

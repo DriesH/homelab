@@ -232,6 +232,54 @@ export type Tailscale = {
     peers: { name: string; dnsName: string; os: string; ips: string[]; online: boolean; lastSeen?: string }[]
 }
 
+export type BackupJob = {
+    enabled: boolean
+    days: string[]
+    hour: number
+    minute: number
+    storage: string
+    exclude: number[]
+    keepDaily: number
+    keepWeekly: number
+    keepMonthly: number
+}
+
+export type GuestBackup = {
+    volid: string
+    storage: string
+    createdAt: string
+    size: number
+    notes: string
+    protected: boolean
+}
+
+export type BackupRun = {
+    id: string
+    kind: 'backup' | 'restore' | 'delete'
+    vmid: number
+    target: string
+    succeeded: boolean
+    message: string
+    startedAt: string
+    finishedAt: string
+}
+
+export type Backups = {
+    busy: string
+    job: BackupJob & { exists: boolean; nextRun?: string; custom?: string }
+    storages: { node: string; name: string; type: string; total: number; used: number }[]
+    guests: {
+        vmid: number
+        name: string
+        type: 'lxc' | 'qemu'
+        status: string
+        included: boolean
+        self: boolean
+        backups: GuestBackup[]
+    }[]
+    history: BackupRun[]
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const response = await fetch(`/api${path}`, {
         method,
@@ -276,6 +324,11 @@ export const api = {
     checkSelfUpdate: () => request<SelfUpdate>('POST', '/self-update/check'),
     installSelfUpdate: () => request<void>('POST', '/self-update/install'),
     saveSelfUpdateSettings: (settings: SelfUpdateSettings) => request<void>('PUT', '/self-update/settings', settings),
+    backups: () => request<Backups>('GET', '/backups'),
+    saveBackupJob: (job: BackupJob) => request<void>('PUT', '/backups/job', job),
+    backUpGuest: (vmid: number) => request<void>('POST', `/backups/guests/${vmid}`),
+    restoreBackup: (vmid: number, volid: string) => request<void>('POST', '/backups/restore', { vmid, volid }),
+    deleteBackup: (volid: string) => request<void>('POST', '/backups/delete', { volid }),
     tailscale: () => request<Tailscale>('GET', '/tailscale'),
     connectTailscale: (authKey: string) => request<void>('POST', '/tailscale/connect', { authKey }),
     logoutTailscale: () => request<void>('POST', '/tailscale/logout'),
