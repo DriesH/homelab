@@ -25,6 +25,11 @@ const (
 	qbittorrentPort     = 8080
 	// Prowlarr shares gluetun's network with FlareSolverr.
 	flaresolverrURL = "http://localhost:8191/"
+
+	seedRatio   = 2.0
+	seedMinutes = 7 * 24 * 60
+	// In the qBittorrent API, share limit action 0 stops the torrent.
+	qbittorrentStopTorrent = 0
 )
 
 type Config struct {
@@ -141,6 +146,13 @@ func configureQBittorrent(ctx context.Context, cfg Config, qbit *qbittorrent) er
 		"temp_path_enabled": false,
 		// Gluetun's port-forward hook calls qBittorrent on 127.0.0.1 without a login.
 		"bypass_local_auth": true,
+		// Radarr and Sonarr copy downloads to the NAS and only delete the local
+		// file once qBittorrent stops the torrent. So stop at ratio 2 or after 7 days.
+		"max_ratio_enabled":        true,
+		"max_ratio":                seedRatio,
+		"max_seeding_time_enabled": true,
+		"max_seeding_time":         seedMinutes,
+		"max_ratio_act":            qbittorrentStopTorrent,
 	})
 	if err != nil {
 		return err
