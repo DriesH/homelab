@@ -20,6 +20,7 @@ import (
 	"homelab/internal/auth"
 	"homelab/internal/backups"
 	"homelab/internal/config"
+	"homelab/internal/databackup"
 	"homelab/internal/health"
 	"homelab/internal/jellyfin"
 	"homelab/internal/proxmox"
@@ -38,6 +39,13 @@ func serve() error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
+	}
+
+	// Before anything reads the data, so no service writes over a restore.
+	if restored, err := databackup.Apply(cfg.DataDir); err != nil {
+		return fmt.Errorf("apply the restored data backup: %w", err)
+	} else if restored {
+		logger.Info("applied the restored data backup")
 	}
 
 	admin, err := auth.LoadAdmin(auth.AdminPath(cfg.DataDir))
@@ -60,6 +68,9 @@ func serve() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	ctx, restart := context.WithCancelCause(ctx)
+	defer restart(nil)
+	restartCtx := ctx
 
 	agentClient := agent.NewClient(cfg.AgentSocket)
 	updateService, err := updates.New(updates.Options{
@@ -151,6 +162,8 @@ func serve() error {
 			Jellyfin:   jellyfinService,
 			SelfUpdate: selfUpdateService,
 		},
+		DataDir:       cfg.DataDir,
+		Restart:       func() { restart(errRestart) },
 		Notify:        updateService.Notify,
 		Background:    ctx,
 		Web:           webFS,
@@ -160,7 +173,7 @@ func serve() error {
 
 	if cfg.Dev {
 		logger.Warn("dev mode: serving plain HTTP", "addr", cfg.HTTPAddr)
-		return run(ctx, newServer(cfg.HTTPAddr, handler))
+		return stopReason(restartCtx, run(ctx, newServer(cfg.HTTPAddr, handler)))
 	}
 
 	authority, err := tlsca.Load(filepath.Join(cfg.DataDir, "tls"), cfg.Hostname)
@@ -179,7 +192,18 @@ func serve() error {
 	group.Go(func() error { return run(ctx, httpsServer) })
 	group.Go(func() error { return run(ctx, httpServer) })
 
-	return group.Wait()
+	return stopReason(restartCtx, group.Wait())
+}
+
+// errRestart makes the process exit with an error, so systemd starts it again.
+var errRestart = errors.New("restarting to load the restored data backup")
+
+func stopReason(ctx context.Context, err error) error {
+	if err == nil && errors.Is(context.Cause(ctx), errRestart) {
+		return errRestart
+	}
+
+	return err
 }
 
 // serveBackend is the local address that Tailscale Serve forwards to. The

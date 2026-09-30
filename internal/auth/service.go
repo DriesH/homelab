@@ -157,6 +157,28 @@ func (s *Service) Login(username, password, code, clientIP string) (string, erro
 	return token, nil
 }
 
+// CheckPassword asks for the password again before a sensitive action. Wrong
+// passwords count toward the same lockout as logins.
+func (s *Service) CheckPassword(password, clientIP string) error {
+	if s.isLockedOut(clientIP) {
+		return ErrLockedOut
+	}
+
+	ok, err := VerifyPassword(password, s.admin.PasswordHash)
+	if err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !ok {
+		s.recordFailure(clientIP)
+		return ErrInvalidCredentials
+	}
+
+	return nil
+}
+
 func (s *Service) Validate(token string) bool {
 	key := sha256.Sum256([]byte(token))
 

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha1"
@@ -10,8 +11,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -471,5 +475,76 @@ func TestSettingsFileEndpoints(t *testing.T) {
 	}
 	if len(fake.imported) != 2 || fake.imported[0] || !fake.imported[1] {
 		t.Errorf("imports = %v", fake.imported)
+	}
+}
+
+func TestDataBackupEndpoints(t *testing.T) {
+	dataDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dataDir, "admin.json"), []byte(`{"username":"admin"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restarted := make(chan struct{}, 1)
+	var messages []string
+	server, _ := newTestServerWithOptions(t, func(options *Options) {
+		options.DataDir = dataDir
+		options.Restart = func() { restarted <- struct{}{} }
+		options.Notify = func(_ context.Context, text string) { messages = append(messages, text) }
+	})
+	cookie := login(t, server)
+	url := server.URL + "/api/data-backup/download"
+
+	if response := request(t, http.MethodPost, url, `{"password":"wrong","passphrase":"long enough passphrase"}`, cookie); response.StatusCode != http.StatusForbidden {
+		t.Errorf("wrong password: expected 403, got %s", response.Status)
+	}
+	if response := request(t, http.MethodPost, url, `{"password":"secret","passphrase":"short"}`, cookie); response.StatusCode != http.StatusBadRequest {
+		t.Errorf("weak passphrase: expected 400, got %s", response.Status)
+	}
+	response := request(t, http.MethodPost, url, `{"password":"secret","passphrase":"long enough passphrase"}`, cookie)
+	backup, _ := io.ReadAll(response.Body)
+	if response.StatusCode != http.StatusOK || !strings.HasPrefix(response.Header.Get("Content-Disposition"), `attachment; filename="homelab-data-`) {
+		t.Fatalf("download: %s %v", response.Status, response.Header)
+	}
+	if len(messages) != 1 {
+		t.Errorf("messages = %v", messages)
+	}
+
+	restore := func(password, passphrase string, file []byte) *http.Response {
+		var body bytes.Buffer
+		form := multipart.NewWriter(&body)
+		form.WriteField("password", password)
+		form.WriteField("passphrase", passphrase)
+		part, _ := form.CreateFormFile("file", "backup.hlbackup")
+		part.Write(file)
+		form.Close()
+
+		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/data-backup/restore", &body)
+		req.Header.Set("Content-Type", form.FormDataContentType())
+		req.Header.Set("X-Homelab-Request", "1")
+		req.AddCookie(cookie)
+		response, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { response.Body.Close() })
+		return response
+	}
+
+	if response := restore("wrong", "long enough passphrase", backup); response.StatusCode != http.StatusForbidden {
+		t.Errorf("restore, wrong password: expected 403, got %s", response.Status)
+	}
+	if response := restore("secret", "other passphrase!!", backup); response.StatusCode != http.StatusBadRequest {
+		t.Errorf("restore, wrong passphrase: expected 400, got %s", response.Status)
+	}
+	if response := restore("secret", "long enough passphrase", backup); response.StatusCode != http.StatusOK {
+		t.Fatalf("restore: expected 200, got %s", response.Status)
+	}
+
+	select {
+	case <-restarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the manager did not restart")
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, ".restore-pending", "admin.json")); err != nil {
+		t.Fatalf("restore is not staged: %v", err)
 	}
 }

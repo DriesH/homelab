@@ -120,6 +120,10 @@ type Options struct {
 	Console    Console
 	// SettingsFile exports and imports homelab.yaml.
 	SettingsFile SettingsFile
+	// DataDir is the folder that a data backup copies.
+	DataDir string
+	// Restart stops the manager, so systemd starts it again with restored data.
+	Restart func()
 	// Notify sends a message with the Telegram settings, for example when a console opens.
 	Notify func(ctx context.Context, text string)
 	// Background is the context for work that outlives a request, like updates.
@@ -180,6 +184,8 @@ func New(options Options) http.Handler {
 	mux.Handle("GET /api/guests/{vmid}/console", s.requireSession(http.HandlerFunc(s.console)))
 	mux.Handle("GET /api/settings/export", s.requireSession(http.HandlerFunc(s.settingsExport)))
 	mux.Handle("POST /api/settings/import", s.requireSession(http.HandlerFunc(s.settingsImport)))
+	mux.Handle("POST /api/data-backup/download", s.requireSession(http.HandlerFunc(s.dataBackupDownload)))
+	mux.Handle("POST /api/data-backup/restore", s.requireSession(http.HandlerFunc(s.dataBackupRestore)))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 	})
