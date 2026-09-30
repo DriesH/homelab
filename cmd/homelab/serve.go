@@ -141,6 +141,8 @@ func serve() error {
 		Tailscale:     tailscaleService,
 		Backups:       backupService,
 		Logs:          agentClient,
+		Console:       agentClient,
+		Notify:        updateService.Notify,
 		Background:    ctx,
 		Web:           webFS,
 		SecureCookies: !cfg.Dev,

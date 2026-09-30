@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/coder/websocket"
+
 	"homelab/internal/agent"
 	"homelab/internal/auth"
 	"homelab/internal/backups"
@@ -32,6 +34,11 @@ type Proxmox interface {
 	RunGuestAction(ctx context.Context, node string, guestType proxmox.GuestType, vmid int, action proxmox.GuestAction) (string, error)
 	Tasks(ctx context.Context, node string, limit int) ([]proxmox.Task, error)
 	TaskLog(ctx context.Context, node, upid string, limit int) ([]string, error)
+}
+
+// Console opens a container console through the host agent.
+type Console interface {
+	OpenConsole(ctx context.Context, vmid int) (*websocket.Conn, error)
 }
 
 // Logs reads journals and Docker logs through the host agent.
@@ -104,6 +111,9 @@ type Options struct {
 	Tailscale  Tailscale
 	Backups    Backups
 	Logs       Logs
+	Console    Console
+	// Notify sends a message with the Telegram settings, for example when a console opens.
+	Notify func(ctx context.Context, text string)
 	// Background is the context for work that outlives a request, like updates.
 	Background context.Context
 	Web        fs.FS
@@ -159,6 +169,7 @@ func New(options Options) http.Handler {
 	mux.Handle("GET /api/logs/docker", s.requireSession(http.HandlerFunc(s.logsDocker)))
 	mux.Handle("GET /api/logs/tasks", s.requireSession(http.HandlerFunc(s.logsTasks)))
 	mux.Handle("GET /api/logs/tasks/{node}/log", s.requireSession(http.HandlerFunc(s.logsTaskLog)))
+	mux.Handle("GET /api/guests/{vmid}/console", s.requireSession(http.HandlerFunc(s.console)))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 	})

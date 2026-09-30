@@ -65,6 +65,15 @@ Filter by level, by source and by text. Turn on "Follow" to refresh every 5 seco
 
 The host agent reads the journals and Docker logs with fixed, read-only commands.
 
+## Console
+
+Open the console of a running container from its menu on the Overview. It is the same tty login as the Console tab in Proxmox. Containers from community-scripts.org log in as root automatically.
+
+- The host agent runs `pct console <id>` and nothing else, so a console has the same power as the Proxmox `VM.Console` privilege.
+- Only the Homelab page itself can open a console (the websocket checks the origin).
+- Opening a console sends a Telegram message.
+- The agent allows 4 consoles at the same time.
+
 ## Tailscale
 
 The installer puts Tailscale in the manager container. Connect it on the Tailscale page, with your Tailscale account or an auth key.

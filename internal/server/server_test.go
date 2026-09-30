@@ -17,6 +17,8 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/coder/websocket"
+
 	"homelab/internal/agent"
 	"homelab/internal/auth"
 	"homelab/internal/health"
@@ -365,5 +367,62 @@ func TestTaskLogs(t *testing.T) {
 	}
 	if response := request(t, http.MethodGet, server.URL+"/api/logs/tasks/pve/log?upid=UPID:pve:1", "", cookie); response.StatusCode != http.StatusOK {
 		t.Errorf("task log: expected 200, got %s", response.Status)
+	}
+}
+
+type echoConsole struct{ url string }
+
+func (e echoConsole) OpenConsole(ctx context.Context, _ int) (*websocket.Conn, error) {
+	conn, _, err := websocket.Dial(ctx, e.url, nil)
+	return conn, err
+}
+
+func TestConsoleRelayAndOrigin(t *testing.T) {
+	echo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		for {
+			kind, data, err := conn.Read(r.Context())
+			if err != nil {
+				return
+			}
+			conn.Write(r.Context(), kind, data)
+		}
+	}))
+	t.Cleanup(echo.Close)
+
+	server, _ := newTestServerWithOptions(t, func(options *Options) {
+		options.Console = echoConsole{url: "ws" + strings.TrimPrefix(echo.URL, "http")}
+	})
+	cookie := login(t, server)
+	base := "ws" + strings.TrimPrefix(server.URL, "http")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	header := http.Header{"Cookie": {cookie.String()}, "Origin": {server.URL}}
+	conn, _, err := websocket.Dial(ctx, base+"/api/guests/200/console", &websocket.DialOptions{HTTPHeader: header})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn.Write(ctx, websocket.MessageBinary, []byte("ls\n"))
+	if _, data, err := conn.Read(ctx); err != nil || string(data) != "ls\n" {
+		t.Fatalf("echo = %q, %v", data, err)
+	}
+	conn.Close(websocket.StatusNormalClosure, "")
+
+	header.Set("Origin", "https://evil.example")
+	if _, _, err := websocket.Dial(ctx, base+"/api/guests/200/console", &websocket.DialOptions{HTTPHeader: header}); err == nil {
+		t.Error("a console opened from another origin")
+	}
+
+	header.Set("Origin", server.URL)
+	if _, response, err := websocket.Dial(ctx, base+"/api/guests/999/console", &websocket.DialOptions{HTTPHeader: header}); err == nil || response.StatusCode != http.StatusNotFound {
+		t.Errorf("unknown container: err = %v", err)
+	}
+	if _, response, err := websocket.Dial(ctx, base+"/api/guests/200/console", nil); err == nil || response.StatusCode != http.StatusUnauthorized {
+		t.Errorf("without session: err = %v", err)
 	}
 }
