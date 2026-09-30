@@ -88,6 +88,33 @@ export type Updates = {
     history: UpdateRun[]
 }
 
+export type JellyfinNowPlaying = {
+    user: string
+    device: string
+    itemId: string
+    title: string
+    subtitle: string
+    progress: number
+    paused: boolean
+    transcode: boolean
+    playMethod: string
+    reasons: string[]
+}
+
+export type Jellyfin = {
+    configured: boolean
+    url: string
+    error?: string
+    serverName?: string
+    version?: string
+    themeEnabled: boolean
+    movies: number
+    series: number
+    episodes: number
+    nowPlaying: JellyfinNowPlaying[]
+    recent: { id: string; name: string; type: string; year?: number }[]
+}
+
 export type UpdateSettings = {
     schedule: Schedule
     excluded: number[]
@@ -130,4 +157,12 @@ export const api = {
     updateGuest: (vmid: number) => request<void>('POST', `/updates/guests/${vmid}`),
     saveUpdateSettings: (settings: UpdateSettings) => request<void>('PUT', '/updates/settings', settings),
     testNotification: () => request<void>('POST', '/updates/test-notification'),
+    jellyfin: () => request<Jellyfin>('GET', '/jellyfin'),
+    saveJellyfinSettings: (settings: { url: string; apiKey: string }) =>
+        request<void>('PUT', '/jellyfin/settings', settings),
+    setJellyfinTheme: (enabled: boolean) => request<void>('PUT', '/jellyfin/theme', { enabled }),
+}
+
+export function jellyfinImage(itemId: string, type: 'Primary' | 'Backdrop') {
+    return `/api/jellyfin/items/${itemId}/image?type=${type}`
 }
