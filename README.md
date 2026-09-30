@@ -60,3 +60,7 @@ make test       # Go tests, lint and typecheck
 make dev-api    # API on 127.0.0.1:8080 (needs Proxmox env vars, see Makefile)
 make dev-web    # Vite dev server, proxies /api to the API
 ```
+
+## License
+
+MIT, see [LICENSE](LICENSE).
