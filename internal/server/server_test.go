@@ -23,6 +23,7 @@ import (
 	"homelab/internal/auth"
 	"homelab/internal/health"
 	"homelab/internal/proxmox"
+	"homelab/internal/settingsfile"
 	"homelab/internal/updates"
 )
 
@@ -424,5 +425,51 @@ func TestConsoleRelayAndOrigin(t *testing.T) {
 	}
 	if _, response, err := websocket.Dial(ctx, base+"/api/guests/200/console", nil); err == nil || response.StatusCode != http.StatusUnauthorized {
 		t.Errorf("without session: err = %v", err)
+	}
+}
+
+type fakeSettingsFile struct {
+	imported []bool
+}
+
+func (f *fakeSettingsFile) Export(context.Context) ([]byte, error) {
+	return []byte("version: 1\n"), nil
+}
+
+func (f *fakeSettingsFile) Import(_ context.Context, data []byte, apply bool) (settingsfile.Result, error) {
+	if _, err := settingsfile.Parse(data); err != nil {
+		return settingsfile.Result{}, err
+	}
+	f.imported = append(f.imported, apply)
+	return settingsfile.Result{Applied: apply, Changes: []settingsfile.Change{}}, nil
+}
+
+func TestSettingsFileEndpoints(t *testing.T) {
+	fake := &fakeSettingsFile{}
+	server, _ := newTestServerWithOptions(t, func(options *Options) { options.SettingsFile = fake })
+	cookie := login(t, server)
+
+	if response := request(t, http.MethodGet, server.URL+"/api/settings/export", "", nil); response.StatusCode != http.StatusUnauthorized {
+		t.Errorf("without session: expected 401, got %s", response.Status)
+	}
+	response := request(t, http.MethodGet, server.URL+"/api/settings/export", "", cookie)
+	if response.StatusCode != http.StatusOK || response.Header.Get("Content-Disposition") != `attachment; filename="homelab.yaml"` {
+		t.Errorf("export: %s %v", response.Status, response.Header)
+	}
+
+	if response := request(t, http.MethodPost, server.URL+"/api/settings/import", "version: 1\nhealth: {checks: []}", cookie); response.StatusCode != http.StatusOK {
+		t.Errorf("preview: expected 200, got %s", response.Status)
+	}
+	if response := request(t, http.MethodPost, server.URL+"/api/settings/import?apply=1", "version: 1\nhealth: {checks: []}", cookie); response.StatusCode != http.StatusOK {
+		t.Errorf("apply: expected 200, got %s", response.Status)
+	}
+	if response := request(t, http.MethodPost, server.URL+"/api/settings/import?apply=1", "version: 1\nnope: 1", cookie); response.StatusCode != http.StatusBadRequest {
+		t.Errorf("invalid: expected 400, got %s", response.Status)
+	}
+	if response := request(t, http.MethodPost, server.URL+"/api/settings/import", strings.Repeat("x", settingsfile.MaxSize+10), cookie); response.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Errorf("too large: expected 413, got %s", response.Status)
+	}
+	if len(fake.imported) != 2 || fake.imported[0] || !fake.imported[1] {
+		t.Errorf("imports = %v", fake.imported)
 	}
 }

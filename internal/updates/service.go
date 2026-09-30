@@ -408,8 +408,8 @@ type SettingsInput struct {
 
 func (s *Service) SaveSettings(input SettingsInput) error {
 	schedule := input.Schedule
-	if schedule.Weekday < 0 || schedule.Weekday > 6 || schedule.Hour < 0 || schedule.Hour > 23 || schedule.Minute < 0 || schedule.Minute > 59 {
-		return fmt.Errorf("%w: schedule is out of range", ErrInvalidSettings)
+	if err := schedule.Validate(); err != nil {
+		return err
 	}
 
 	s.mu.Lock()
@@ -435,6 +435,29 @@ func (s *Service) SaveSettings(input SettingsInput) error {
 	s.state.Settings = Settings{Schedule: schedule, Excluded: excluded, Telegram: telegram}
 
 	return s.state.save(s.path)
+}
+
+func (s Schedule) Validate() error {
+	if s.Weekday < 0 || s.Weekday > 6 || s.Hour < 0 || s.Hour > 23 || s.Minute < 0 || s.Minute > 59 {
+		return fmt.Errorf("%w: schedule is out of range", ErrInvalidSettings)
+	}
+
+	return nil
+}
+
+func ValidChatID(chatID string) bool {
+	return chatIDPattern.MatchString(chatID)
+}
+
+// Settings returns the saved settings, with the bot token.
+func (s *Service) Settings() Settings {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	settings := s.state.Settings
+	settings.Excluded = slices.Clone(settings.Excluded)
+
+	return settings
 }
 
 func (s *Service) SendTestNotification(ctx context.Context) error {

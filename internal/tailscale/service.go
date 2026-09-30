@@ -385,11 +385,8 @@ func (s *Service) SetServe(ctx context.Context, enabled bool) error {
 // SaveSettings saves the settings and applies them when Tailscale runs.
 func (s *Service) SaveSettings(ctx context.Context, settings Settings) error {
 	settings.Subnet = strings.TrimSpace(settings.Subnet)
-	if settings.ShareSubnet {
-		prefix, err := netip.ParsePrefix(settings.Subnet)
-		if err != nil || !prefix.Addr().Is4() || prefix != prefix.Masked() {
-			return fmt.Errorf("%w: the subnet must look like 192.168.1.0/24", ErrInvalidSettings)
-		}
+	if err := settings.Validate(); err != nil {
+		return err
 	}
 
 	s.mu.Lock()
@@ -414,6 +411,18 @@ func (s *Service) SaveSettings(ctx context.Context, settings Settings) error {
 	_, err = s.run(ctx, s.upArgs(settings, 20*time.Second)...)
 
 	return err
+}
+
+func (s Settings) Validate() error {
+	if !s.ShareSubnet {
+		return nil
+	}
+	prefix, err := netip.ParsePrefix(s.Subnet)
+	if err != nil || !prefix.Addr().Is4() || prefix != prefix.Masked() {
+		return fmt.Errorf("%w: the subnet must look like 192.168.1.0/24", ErrInvalidSettings)
+	}
+
+	return nil
 }
 
 // save writes the settings. It needs s.mu.

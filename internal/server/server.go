@@ -18,6 +18,7 @@ import (
 	"homelab/internal/jellyfin"
 	"homelab/internal/proxmox"
 	"homelab/internal/selfupdate"
+	"homelab/internal/settingsfile"
 	"homelab/internal/tailscale"
 	"homelab/internal/updates"
 )
@@ -100,6 +101,11 @@ type Backups interface {
 	Delete(ctx context.Context, volid string) error
 }
 
+type SettingsFile interface {
+	Export(ctx context.Context) ([]byte, error)
+	Import(ctx context.Context, data []byte, apply bool) (settingsfile.Result, error)
+}
+
 type Options struct {
 	Auth       *auth.Service
 	Proxmox    Proxmox
@@ -112,6 +118,8 @@ type Options struct {
 	Backups    Backups
 	Logs       Logs
 	Console    Console
+	// SettingsFile exports and imports homelab.yaml.
+	SettingsFile SettingsFile
 	// Notify sends a message with the Telegram settings, for example when a console opens.
 	Notify func(ctx context.Context, text string)
 	// Background is the context for work that outlives a request, like updates.
@@ -170,6 +178,8 @@ func New(options Options) http.Handler {
 	mux.Handle("GET /api/logs/tasks", s.requireSession(http.HandlerFunc(s.logsTasks)))
 	mux.Handle("GET /api/logs/tasks/{node}/log", s.requireSession(http.HandlerFunc(s.logsTaskLog)))
 	mux.Handle("GET /api/guests/{vmid}/console", s.requireSession(http.HandlerFunc(s.console)))
+	mux.Handle("GET /api/settings/export", s.requireSession(http.HandlerFunc(s.settingsExport)))
+	mux.Handle("POST /api/settings/import", s.requireSession(http.HandlerFunc(s.settingsImport)))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 	})

@@ -25,6 +25,7 @@ import (
 	"homelab/internal/proxmox"
 	"homelab/internal/selfupdate"
 	"homelab/internal/server"
+	"homelab/internal/settingsfile"
 	"homelab/internal/tailscale"
 	"homelab/internal/tlsca"
 	"homelab/internal/updates"
@@ -131,17 +132,25 @@ func serve() error {
 	}
 
 	handler := server.New(server.Options{
-		Auth:          authService,
-		Proxmox:       pve,
-		Agent:         agentClient,
-		Updates:       updateService,
-		Jellyfin:      jellyfinService,
-		Health:        healthService,
-		SelfUpdate:    selfUpdateService,
-		Tailscale:     tailscaleService,
-		Backups:       backupService,
-		Logs:          agentClient,
-		Console:       agentClient,
+		Auth:       authService,
+		Proxmox:    pve,
+		Agent:      agentClient,
+		Updates:    updateService,
+		Jellyfin:   jellyfinService,
+		Health:     healthService,
+		SelfUpdate: selfUpdateService,
+		Tailscale:  tailscaleService,
+		Backups:    backupService,
+		Logs:       agentClient,
+		Console:    agentClient,
+		SettingsFile: &settingsfile.Service{
+			Updates:    updateService,
+			Health:     healthService,
+			Backups:    backupService,
+			Tailscale:  tailscaleService,
+			Jellyfin:   jellyfinService,
+			SelfUpdate: selfUpdateService,
+		},
 		Notify:        updateService.Notify,
 		Background:    ctx,
 		Web:           webFS,

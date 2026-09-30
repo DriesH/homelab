@@ -371,7 +371,7 @@ func (s *Service) Status(ctx context.Context) View {
 func (s *Service) SaveSettings(input SettingsInput) error {
 	input.Repo = strings.TrimSpace(input.Repo)
 	input.Token = strings.TrimSpace(input.Token)
-	if !repoPattern.MatchString(input.Repo) {
+	if !ValidRepo(input.Repo) {
 		return fmt.Errorf("%w: the repo must look like owner/name", ErrInvalidSettings)
 	}
 
@@ -399,6 +399,18 @@ func (s *Service) SaveSettings(input SettingsInput) error {
 	}
 
 	return nil
+}
+
+func ValidRepo(repo string) bool {
+	return repoPattern.MatchString(repo)
+}
+
+// Settings returns the saved settings, with the token.
+func (s *Service) Settings() Settings {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.state.Settings
 }
 
 // saveLocked writes the state with 0600, because it holds the token. It needs s.mu.
