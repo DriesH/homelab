@@ -173,7 +173,7 @@ push_stack() {
 
     local env_file
     env_file="$(mktemp)"
-    trap 'rm -f "$env_file"' RETURN
+    trap 'rm -f "$env_file"; trap - RETURN' RETURN
 
     cat >"$env_file" <<EOF
 TZ=$(timedatectl show -p Timezone --value)

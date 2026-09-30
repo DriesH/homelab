@@ -127,7 +127,7 @@ setup_container() {
     local host_ip env_file
     host_ip="$(ip -4 -o addr show dev "$BRIDGE" | awk '{ print $4 }' | cut -d/ -f1 | head -n1)"
     env_file="$(mktemp)"
-    trap 'rm -f "$env_file"' RETURN
+    trap 'rm -f "$env_file"; trap - RETURN' RETURN
 
     cat >"$env_file" <<EOF
 HOMELAB_HOSTNAME=$CT_HOSTNAME.local
