@@ -2,6 +2,9 @@ package auth
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -98,5 +101,51 @@ func TestLoginLocksOutAfterRepeatedFailures(t *testing.T) {
 	}
 	if _, err := service.Login("admin", "secret", "287082", "10.0.0.3"); err != nil {
 		t.Fatalf("other IP should not be locked out: %v", err)
+	}
+}
+
+func TestSessionsSurviveRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.json")
+	service := newTestService(t, time.Unix(59, 0))
+	if err := service.PersistTo(path); err != nil {
+		t.Fatal(err)
+	}
+
+	token, err := service.Login("admin", "secret", "287082", "10.0.0.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), token) {
+		t.Fatal("the token itself was saved")
+	}
+	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
+		t.Fatalf("sessions file mode = %v", info.Mode().Perm())
+	}
+
+	restarted := newTestService(t, time.Unix(59, 0))
+	if err := restarted.PersistTo(path); err != nil {
+		t.Fatal(err)
+	}
+	if !restarted.Validate(token) {
+		t.Fatal("session lost after restart")
+	}
+	// The used code stays used after a restart.
+	if _, err := restarted.Login("admin", "secret", "287082", "10.0.0.2"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("reused code after restart: err = %v", err)
+	}
+
+	restarted.Logout(token)
+	again := newTestService(t, time.Unix(59, 0))
+	again.PersistTo(path)
+	if again.Validate(token) {
+		t.Fatal("session valid after logout and restart")
+	}
+
+	expired := newTestService(t, time.Unix(59, 0).Add(SessionTTL+time.Minute))
+	expired.PersistTo(path)
+	if len(expired.sessions) != 0 {
+		t.Fatal("expired sessions were loaded")
 	}
 }
