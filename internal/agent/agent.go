@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coder/websocket"
+
 	"homelab/internal/release"
 )
 
@@ -145,6 +147,26 @@ func (c *Client) DockerLogs(ctx context.Context, vmid, lines int) (DockerLogs, e
 	err := c.do(ctx, http.MethodGet, "/v1/logs/docker?"+values.Encode(), nil, &logs)
 
 	return logs, err
+}
+
+// OpenConsole connects to the tty of a container through the agent.
+func (c *Client) OpenConsole(ctx context.Context, vmid int) (*websocket.Conn, error) {
+	conn, response, err := websocket.Dial(ctx, "ws://agent/v1/console/"+strconv.Itoa(vmid), &websocket.DialOptions{
+		// No timeout: a console stays open as long as the user wants.
+		HTTPClient: &http.Client{Transport: c.http.Transport},
+	})
+	if err != nil {
+		if response != nil && response.Body != nil {
+			message, _ := io.ReadAll(io.LimitReader(response.Body, 512))
+			response.Body.Close()
+			if text := strings.TrimSpace(string(message)); text != "" {
+				return nil, fmt.Errorf("%w: %s", ErrConsoleUnavailable, text)
+			}
+		}
+		return nil, fmt.Errorf("host agent: %w", err)
+	}
+
+	return conn, nil
 }
 
 // SignatureHeader carries the bundle signature as base64 JSON.

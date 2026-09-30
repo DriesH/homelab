@@ -63,6 +63,7 @@ func run(socketPath string, socketGID int, logger *slog.Logger) error {
 	mux.HandleFunc("GET /v1/jobs/{id}", getJob(runner))
 	mux.HandleFunc("GET /v1/mounts", listMounts(agent.NewMounts()))
 	mux.HandleFunc("PUT /v1/backup-job", saveBackupJob(logger))
+	mux.Handle("GET /v1/console/{vmid}", agent.NewConsoles(logger))
 	logs := agent.NewLogs()
 	mux.HandleFunc("GET /v1/logs/journal", journalLogs(logs))
 	mux.HandleFunc("GET /v1/logs/docker", dockerLogs(logs))
