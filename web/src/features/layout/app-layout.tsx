@@ -35,6 +35,7 @@ const navigation = [
     { to: '/health', label: 'Health' },
     { to: '/updates', label: 'Updates' },
     { to: '/backups', label: 'Backups' },
+    { to: '/apps', label: 'Apps' },
     { to: '/logs', label: 'Logs' },
     { to: '/jellyfin', label: 'Jellyfin' },
     { to: '/tailscale', label: 'Tailscale' },

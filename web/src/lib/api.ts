@@ -289,6 +289,56 @@ export type DockerLogs = {
     entries: LogEntry[]
 }
 
+export type AppInstall = {
+    app?: string
+    state: 'idle' | 'running' | 'succeeded' | 'failed'
+    message?: string
+    startedAt?: string
+    finishedAt?: string
+    vmid?: number
+    ip?: string
+    log?: string
+}
+
+export type CatalogApp = {
+    id: string
+    name: string
+    description: string
+    links: { name: string; description: string; url?: string }[]
+    installed: boolean
+    vmid?: number
+    status?: string
+    install: AppInstall | null
+}
+
+export type Apps = {
+    apps: CatalogApp[]
+    defaults: {
+        storages: string[]
+        storage: string
+        jellyfinVmid?: number
+        vpnCountries: string
+        subtitleLanguages: string
+        username: string
+        downloadsSize: number
+    }
+    error?: string
+}
+
+export type MediaStackAnswers = {
+    nasServer: string
+    nasExport: string
+    wireguardPrivateKey: string
+    vpnCountries: string
+    subtitleLanguages: string
+    username: string
+    password: string
+    jellyfinApiKey: string
+    restartJellyfin: boolean
+    storage: string
+    downloadsSize: number
+}
+
 export type SettingsChange = {
     section: 'selfUpdate' | 'notifications' | 'updates' | 'health' | 'backups' | 'tailscale' | 'jellyfin'
     status: 'unchanged' | 'changed' | 'applied' | 'skipped' | 'failed'
@@ -398,6 +448,8 @@ export const api = {
     logoutTailscale: () => request<void>('POST', '/tailscale/logout'),
     setTailscaleServe: (enabled: boolean) => request<void>('PUT', '/tailscale/serve', { enabled }),
     saveTailscaleSettings: (settings: TailscaleSettings) => request<void>('PUT', '/tailscale/settings', settings),
+    apps: () => request<Apps>('GET', '/apps'),
+    installApp: (id: string, answers: MediaStackAnswers) => request<void>('POST', `/apps/${id}/install`, answers),
     settingsExportUrl: '/api/settings/export',
     downloadDataBackup,
     restoreDataBackup,

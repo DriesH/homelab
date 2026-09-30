@@ -62,3 +62,10 @@ export const backupsQuery = queryOptions({
     queryFn: api.backups,
     refetchInterval: (query) => (query.state.data?.busy ? 3000 : 30000),
 })
+
+export const appsQuery = queryOptions({
+    queryKey: ['apps'],
+    queryFn: api.apps,
+    // Poll fast during an install, for the live log.
+    refetchInterval: (query) => (query.state.data?.apps.some((app) => app.install?.state === 'running') ? 2000 : 30000),
+})
