@@ -199,7 +199,9 @@ function RestoreButton({ guest, disabled, onClick }: { guest: Guest; disabled: b
     return (
         <Tooltip>
             <TooltipTrigger render={<span />}>{button}</TooltipTrigger>
-            <TooltipContent>Homelab runs in this container. Restore it in Proxmox.</TooltipContent>
+            <TooltipContent>
+                Homelab runs in this container. To restore it, run <code>homelab-restore</code> on the Proxmox host.
+            </TooltipContent>
         </Tooltip>
     )
 }

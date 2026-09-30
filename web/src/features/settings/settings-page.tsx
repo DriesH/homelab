@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog'
 import { api, type SettingsChange, type SettingsImport } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { DataBackupCard } from './data-backup-card'
 
 const sectionTitles: Record<SettingsChange['section'], string> = {
     selfUpdate: 'Homelab updates',
@@ -44,6 +45,7 @@ export function SettingsPage() {
             </header>
 
             <SettingsFileCard />
+            <DataBackupCard />
         </div>
     )
 }

@@ -297,6 +297,44 @@ export type SettingsChange = {
 
 export type SettingsImport = { applied: boolean; changes: SettingsChange[] }
 
+async function fail(response: Response): Promise<never> {
+    const data = await response.json().catch(() => ({}))
+    throw new ApiError(response.status, data.error ?? response.statusText)
+}
+
+// downloadDataBackup returns the encrypted backup and its file name.
+async function downloadDataBackup(password: string, passphrase: string) {
+    const response = await fetch('/api/data-backup/download', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-Homelab-Request': '1' },
+        body: JSON.stringify({ password, passphrase }),
+    })
+    if (!response.ok) {
+        return fail(response)
+    }
+
+    const name = /filename="([^"]+)"/.exec(response.headers.get('Content-Disposition') ?? '')?.[1]
+    return { blob: await response.blob(), name: name ?? 'homelab-data.hlbackup' }
+}
+
+async function restoreDataBackup(file: File, password: string, passphrase: string) {
+    const form = new FormData()
+    form.append('password', password)
+    form.append('passphrase', passphrase)
+    form.append('file', file)
+
+    const response = await fetch('/api/data-backup/restore', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'X-Homelab-Request': '1' },
+        body: form,
+    })
+    if (!response.ok) {
+        return fail(response)
+    }
+}
+
 // A string body is sent as it is, for example YAML. Anything else is sent as JSON.
 async function request<T>(method: string, path: string, body?: unknown, contentType = 'application/json'): Promise<T> {
     const response = await fetch(`/api${path}`, {
@@ -310,13 +348,11 @@ async function request<T>(method: string, path: string, body?: unknown, contentT
         return undefined as T
     }
 
-    const data = await response.json().catch(() => ({}))
-
     if (!response.ok) {
-        throw new ApiError(response.status, data.error ?? response.statusText)
+        return fail(response)
     }
 
-    return data as T
+    return (await response.json().catch(() => ({}))) as T
 }
 
 export const api = {
@@ -363,6 +399,8 @@ export const api = {
     setTailscaleServe: (enabled: boolean) => request<void>('PUT', '/tailscale/serve', { enabled }),
     saveTailscaleSettings: (settings: TailscaleSettings) => request<void>('PUT', '/tailscale/settings', settings),
     settingsExportUrl: '/api/settings/export',
+    downloadDataBackup,
+    restoreDataBackup,
     importSettings: (yaml: string, apply: boolean) =>
         request<SettingsImport>('POST', `/settings/import${apply ? '?apply=1' : ''}`, yaml, 'application/yaml'),
     health: () => request<Health>('GET', '/health'),
