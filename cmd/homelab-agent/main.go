@@ -61,6 +61,9 @@ func run(socketPath string, socketGID int, logger *slog.Logger) error {
 	mux.HandleFunc("POST /v1/jobs", startJob(runner, logger))
 	mux.HandleFunc("GET /v1/jobs/{id}", getJob(runner))
 	mux.HandleFunc("GET /v1/mounts", listMounts(agent.NewMounts()))
+	upgrader := agent.NewUpgrader(version)
+	mux.HandleFunc("POST /v1/upgrade", startUpgrade(upgrader, logger))
+	mux.HandleFunc("GET /v1/upgrade", upgradeStatus(upgrader))
 
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 
@@ -128,6 +131,40 @@ func getJob(runner *agent.Runner) http.HandlerFunc {
 func listMounts(mounts *agent.Mounts) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, mounts.List())
+	}
+}
+
+func startUpgrade(upgrader *agent.Upgrader, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		signature, err := agent.DecodeSignatureHeader(r.Header.Get(agent.SignatureHeader))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		err = upgrader.Start(r.Body, signature)
+		switch {
+		case errors.Is(err, agent.ErrInvalidBundle):
+			logger.Warn("upgrade refused", "version", signature.Version, "error", err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		case errors.Is(err, agent.ErrUpgradeRunning):
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		case err != nil:
+			logger.Error("upgrade failed to start", "error", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		logger.Info("upgrade started", "version", signature.Version)
+		writeJSON(w, http.StatusAccepted, upgrader.Status())
+	}
+}
+
+func upgradeStatus(upgrader *agent.Upgrader) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, upgrader.Status())
 	}
 }
 
