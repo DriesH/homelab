@@ -28,3 +28,9 @@ export function updateRunQuery(id: string) {
         queryFn: () => api.updateRun(id),
     })
 }
+
+export const jellyfinQuery = queryOptions({
+    queryKey: ['jellyfin'],
+    queryFn: api.jellyfin,
+    refetchInterval: 10000,
+})

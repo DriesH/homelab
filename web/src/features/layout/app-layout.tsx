@@ -20,6 +20,7 @@ const route = getRouteApi('/_app')
 const navigation = [
     { to: '/', label: 'Overview' },
     { to: '/updates', label: 'Updates' },
+    { to: '/jellyfin', label: 'Jellyfin' },
 ] as const
 
 export function AppLayout() {

@@ -59,7 +59,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *fakeProxmox) {
 	return newTestServerWith(t, nil)
 }
 
-func newTestServerWith(t *testing.T, fakeUpdates Updates) (*httptest.Server, *fakeProxmox) {
+func newTestServerWith(t *testing.T, fakeUpdates Updates, fakeJellyfin ...Jellyfin) (*httptest.Server, *fakeProxmox) {
 	t.Helper()
 
 	hash, err := auth.HashPassword("secret")
@@ -73,8 +73,14 @@ func newTestServerWith(t *testing.T, fakeUpdates Updates) (*httptest.Server, *fa
 		Proxmox: pve,
 		Agent:   offlineAgent{},
 		Updates: fakeUpdates,
-		Web:     fstest.MapFS{"index.html": {Data: []byte("<h1>app</h1>")}},
-		Logger:  slog.New(slog.DiscardHandler),
+		Jellyfin: func() Jellyfin {
+			if len(fakeJellyfin) > 0 {
+				return fakeJellyfin[0]
+			}
+			return nil
+		}(),
+		Web:    fstest.MapFS{"index.html": {Data: []byte("<h1>app</h1>")}},
+		Logger: slog.New(slog.DiscardHandler),
 	})
 
 	server := httptest.NewServer(handler)
@@ -245,5 +251,40 @@ func TestUpdateEndpoints(t *testing.T) {
 	}
 	if response := request(t, http.MethodPost, server.URL+"/api/updates/host", "", nil); response.StatusCode != http.StatusUnauthorized {
 		t.Errorf("host update without session: expected 401, got %s", response.Status)
+	}
+}
+
+type fakeJellyfin struct {
+	Jellyfin
+	images []string
+}
+
+func (f *fakeJellyfin) Image(_ context.Context, itemID, imageType string, maxWidth int) (*http.Response, error) {
+	f.images = append(f.images, fmt.Sprintf("%s/%s/%d", itemID, imageType, maxWidth))
+	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"image/jpeg"}}, Body: io.NopCloser(strings.NewReader("jpeg"))}, nil
+}
+
+func TestJellyfinImageProxyValidatesInput(t *testing.T) {
+	fake := &fakeJellyfin{}
+	server, _ := newTestServerWith(t, nil, fake)
+	cookie := login(t, server)
+	id := "d9d265a510bd6d93239192285fc4bbed"
+
+	for _, path := range []string{
+		"/api/jellyfin/items/../../System/Info/image?type=Primary",
+		"/api/jellyfin/items/" + id + "/image?type=Logo",
+		"/api/jellyfin/items/not-an-id/image?type=Primary",
+	} {
+		if response := request(t, http.MethodGet, server.URL+path, "", cookie); response.StatusCode == http.StatusOK {
+			t.Errorf("%s: expected rejection, got 200", path)
+		}
+	}
+
+	response := request(t, http.MethodGet, server.URL+"/api/jellyfin/items/"+id+"/image?type=Primary", "", cookie)
+	if response.StatusCode != http.StatusOK || response.Header.Get("Content-Type") != "image/jpeg" {
+		t.Fatalf("expected proxied image, got %s", response.Status)
+	}
+	if len(fake.images) != 1 || fake.images[0] != id+"/Primary/300" {
+		t.Fatalf("unexpected image requests: %v", fake.images)
 	}
 }
