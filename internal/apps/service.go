@@ -78,6 +78,8 @@ type Defaults struct {
 	Storages          []string `json:"storages"`
 	Storage           string   `json:"storage"`
 	JellyfinVMID      int      `json:"jellyfinVmid,omitempty"`
+	MoviesFolder      string   `json:"moviesFolder"`
+	SeriesFolder      string   `json:"seriesFolder"`
 	VPNCountries      string   `json:"vpnCountries"`
 	SubtitleLanguages string   `json:"subtitleLanguages"`
 	Username          string   `json:"username"`
@@ -176,6 +178,8 @@ func (s *Service) node(resources []proxmox.Resource) string {
 func (s *Service) defaults(ctx context.Context, node string, resources []proxmox.Resource) Defaults {
 	defaults := Defaults{
 		Storages:          []string{},
+		MoviesFolder:      "movies",
+		SeriesFolder:      "series",
 		VPNCountries:      "Netherlands",
 		SubtitleLanguages: "en",
 		Username:          "homelab",

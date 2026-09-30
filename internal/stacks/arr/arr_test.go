@@ -134,3 +134,29 @@ func TestJellyfinHostFieldsPreferInternalURL(t *testing.T) {
 		t.Fatalf("unexpected fields: %v", fields)
 	}
 }
+
+func TestValidFolder(t *testing.T) {
+	for _, name := range []string{"movies", "Series", "TV Shows", "films_4k", "a"} {
+		if !ValidFolder(name) {
+			t.Errorf("%q should be valid", name)
+		}
+	}
+	for _, name := range []string{"", ".", "..", "a/b", "../movies", " movies", "movies ", ".hidden", "a\nb", "a..b"} {
+		if ValidFolder(name) {
+			t.Errorf("%q should be invalid", name)
+		}
+	}
+}
+
+func TestJellyfinLibrariesUseTheFolders(t *testing.T) {
+	libraries := jellyfinLibraries(Config{MoviesFolder: "Films", SeriesFolder: "TV Shows"})
+	if libraries[0].path != "/data/media/Films" || libraries[1].path != "/data/media/TV Shows" || libraries[1].name != "Series" {
+		t.Fatalf("libraries = %+v", libraries)
+	}
+
+	// Installs from before the folders could be chosen keep movies and tv.
+	libraries = jellyfinLibraries(Config{})
+	if libraries[0].path != "/data/media/movies" || libraries[1].path != "/data/media/tv" {
+		t.Fatalf("default libraries = %+v", libraries)
+	}
+}

@@ -11,7 +11,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -48,6 +50,11 @@ type Config struct {
 
 	SubtitleLanguages []string
 
+	// MoviesFolder and SeriesFolder are folders in the media share. Empty
+	// means movies and tv, the folders of installs from before they could be chosen.
+	MoviesFolder string
+	SeriesFolder string
+
 	// DataDir is /data on this machine, which the containers see as /data.
 	DataDir          string
 	BazarrConfigPath string
@@ -83,7 +90,14 @@ func Configure(ctx context.Context, cfg Config) error {
 	prowlarr := newServarr("prowlarr", cfg.Endpoints.Prowlarr, "v1", cfg.ProwlarrAPIKey, client)
 	qbit := newQBittorrent(cfg.Endpoints.QBittorrent, client)
 
-	for _, dir := range []string{"media/movies", "media/tv", "downloads/torrents"} {
+	movies, series := cfg.folders()
+	for _, name := range []string{movies, series} {
+		if !ValidFolder(name) {
+			return fmt.Errorf("invalid media folder %q", name)
+		}
+	}
+
+	for _, dir := range []string{"media/" + movies, "media/" + series, "downloads/torrents"} {
 		if err := makeDataDir(filepath.Join(cfg.DataDir, dir)); err != nil {
 			return err
 		}
@@ -102,10 +116,10 @@ func Configure(ctx context.Context, cfg Config) error {
 	}{
 		{"qBittorrent", func(ctx context.Context) error { return configureQBittorrent(ctx, cfg, qbit) }},
 		{"Radarr", func(ctx context.Context) error {
-			return configureServarr(ctx, cfg, radarr, "movies", "movieCategory", "radarr")
+			return configureServarr(ctx, cfg, radarr, movies, "movieCategory", "radarr")
 		}},
 		{"Sonarr", func(ctx context.Context) error {
-			return configureServarr(ctx, cfg, sonarr, "tv", "tvCategory", "tv-sonarr")
+			return configureServarr(ctx, cfg, sonarr, series, "tvCategory", "tv-sonarr")
 		}},
 		{"Prowlarr", func(ctx context.Context) error { return configureProwlarr(ctx, cfg, prowlarr) }},
 		{"Bazarr", func(ctx context.Context) error { return configureBazarr(ctx, cfg, client) }},
@@ -347,16 +361,43 @@ func configureBazarr(ctx context.Context, cfg Config, client *http.Client) error
 func configureJellyfin(ctx context.Context, cfg Config, client *http.Client) error {
 	jellyfin := newJellyfin(cfg.JellyfinURL, cfg.JellyfinAPIKey, client)
 
-	for _, library := range []jellyfinLibrary{
-		{name: "Movies", collectionType: "movies", path: "/data/media/movies"},
-		{name: "Shows", collectionType: "tvshows", path: "/data/media/tv"},
-	} {
+	for _, library := range jellyfinLibraries(cfg) {
 		if err := ensureJellyfinLibrary(ctx, jellyfin, library); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+var folderPattern = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9 ._-]{0,62}[A-Za-z0-9_-])?$`)
+
+// ValidFolder allows one folder name, like "movies" or "TV Shows", and no paths.
+func ValidFolder(name string) bool {
+	return folderPattern.MatchString(name) && !strings.Contains(name, "..")
+}
+
+func (c Config) folders() (movies, series string) {
+	movies, series = c.MoviesFolder, c.SeriesFolder
+	if movies == "" {
+		movies = "movies"
+	}
+	if series == "" {
+		series = "tv"
+	}
+
+	return movies, series
+}
+
+// jellyfinLibraries are one library for movies and one for series. Jellyfin
+// sees the media share at the same path as the apps.
+func jellyfinLibraries(cfg Config) []jellyfinLibrary {
+	movies, series := cfg.folders()
+
+	return []jellyfinLibrary{
+		{name: "Movies", collectionType: "movies", path: "/data/media/" + movies},
+		{name: "Series", collectionType: "tvshows", path: "/data/media/" + series},
+	}
 }
 
 // containerUser is the PUID/PGID the containers run as.
