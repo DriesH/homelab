@@ -300,6 +300,12 @@ export type AppInstall = {
     log?: string
 }
 
+export type SavedAnswers = {
+    answers: MediaStackAnswers
+    hasJellyfinApiKey: boolean
+    until: string
+}
+
 export type CatalogApp = {
     id: string
     name: string
@@ -309,6 +315,7 @@ export type CatalogApp = {
     vmid?: number
     status?: string
     install: AppInstall | null
+    saved: SavedAnswers | null
 }
 
 export type Apps = {
@@ -453,7 +460,10 @@ export const api = {
     setTailscaleServe: (enabled: boolean) => request<void>('PUT', '/tailscale/serve', { enabled }),
     saveTailscaleSettings: (settings: TailscaleSettings) => request<void>('PUT', '/tailscale/settings', settings),
     apps: () => request<Apps>('GET', '/apps'),
-    installApp: (id: string, answers: MediaStackAnswers) => request<void>('POST', `/apps/${id}/install`, answers),
+    installApp: (id: string, answers: MediaStackAnswers, keepSecrets = false) =>
+        request<void>('POST', `/apps/${id}/install`, { ...answers, keepSecrets }),
+    retryApp: (id: string) => request<void>('POST', `/apps/${id}/retry`),
+    forgetAppAnswers: (id: string) => request<void>('DELETE', `/apps/${id}/answers`),
     settingsExportUrl: '/api/settings/export',
     downloadDataBackup,
     restoreDataBackup,
