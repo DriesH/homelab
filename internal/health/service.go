@@ -340,15 +340,15 @@ func (s *Service) Status() View {
 func (s *Service) AddCheck(input CheckInput) (Check, error) {
 	input.Name = strings.TrimSpace(input.Name)
 	input.Target = strings.TrimSpace(input.Target)
-	if err := input.validate(); err != nil {
+	if err := input.Validate(); err != nil {
 		return Check{}, err
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if len(s.checks) >= maxChecks {
-		return Check{}, fmt.Errorf("%w: you can add up to %d checks", ErrInvalidCheck, maxChecks)
+	if len(s.checks) >= MaxChecks {
+		return Check{}, fmt.Errorf("%w: you can add up to %d checks", ErrInvalidCheck, MaxChecks)
 	}
 
 	check := Check{ID: newID(), Name: input.Name, Kind: input.Kind, Target: input.Target}
@@ -366,7 +366,7 @@ func (s *Service) AddCheck(input CheckInput) (Check, error) {
 func (s *Service) UpdateCheck(id string, input CheckInput) error {
 	input.Name = strings.TrimSpace(input.Name)
 	input.Target = strings.TrimSpace(input.Target)
-	if err := input.validate(); err != nil {
+	if err := input.Validate(); err != nil {
 		return err
 	}
 
@@ -389,6 +389,62 @@ func (s *Service) UpdateCheck(id string, input CheckInput) error {
 	// A new target starts over, and its old alert no longer applies.
 	s.services[id] = &ServiceView{Check: check, Status: StatusPending}
 	delete(s.alerts, "service:"+id)
+
+	return nil
+}
+
+func (s *Service) Checks() []Check {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return slices.Clone(s.checks)
+}
+
+// SetChecks replaces all checks. A check that stays the same keeps its ID and status.
+func (s *Service) SetChecks(inputs []CheckInput) error {
+	if len(inputs) > MaxChecks {
+		return fmt.Errorf("%w: you can add up to %d checks", ErrInvalidCheck, MaxChecks)
+	}
+	for i := range inputs {
+		inputs[i].Name = strings.TrimSpace(inputs[i].Name)
+		inputs[i].Target = strings.TrimSpace(inputs[i].Target)
+		if err := inputs[i].Validate(); err != nil {
+			return err
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	unused := slices.Clone(s.checks)
+	checks := make([]Check, 0, len(inputs))
+	for _, input := range inputs {
+		check := Check{ID: newID(), Name: input.Name, Kind: input.Kind, Target: input.Target}
+		index := slices.IndexFunc(unused, func(old Check) bool {
+			return old.Name == check.Name && old.Kind == check.Kind && old.Target == check.Target
+		})
+		if index >= 0 {
+			check.ID = unused[index].ID
+			unused = slices.Delete(unused, index, index+1)
+		}
+		checks = append(checks, check)
+	}
+	if err := s.save(checks); err != nil {
+		return err
+	}
+
+	s.checks = checks
+	services := map[string]*ServiceView{}
+	for _, check := range checks {
+		services[check.ID] = s.services[check.ID]
+		if services[check.ID] == nil {
+			services[check.ID] = &ServiceView{Check: check, Status: StatusPending}
+		}
+	}
+	s.services = services
+	for _, check := range unused {
+		delete(s.alerts, "service:"+check.ID)
+	}
 
 	return nil
 }

@@ -13,8 +13,12 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/coder/websocket"
 
 	"homelab/internal/release"
 )
@@ -89,7 +93,8 @@ func NewClient(socketPath string) *Client {
 		},
 	}
 
-	return &Client{http: &http.Client{Transport: transport, Timeout: 10 * time.Second}}
+	// Reading Docker logs in a container with many apps takes a while.
+	return &Client{http: &http.Client{Transport: transport, Timeout: 45 * time.Second}}
 }
 
 func (c *Client) Health(ctx context.Context) (Health, error) {
@@ -118,6 +123,50 @@ func (c *Client) Mounts(ctx context.Context) ([]Mount, error) {
 	err := c.do(ctx, http.MethodGet, "/v1/mounts", nil, &mounts)
 
 	return mounts, err
+}
+
+func (c *Client) SaveBackupJob(ctx context.Context, job BackupJob) error {
+	return c.do(ctx, http.MethodPut, "/v1/backup-job", job, nil)
+}
+
+func (c *Client) Journal(ctx context.Context, query JournalQuery) ([]LogEntry, error) {
+	values := url.Values{
+		"vmid":     {strconv.Itoa(query.VMID)},
+		"lines":    {strconv.Itoa(query.Lines)},
+		"priority": {strconv.Itoa(query.Priority)},
+	}
+	var entries []LogEntry
+	err := c.do(ctx, http.MethodGet, "/v1/logs/journal?"+values.Encode(), nil, &entries)
+
+	return entries, err
+}
+
+func (c *Client) DockerLogs(ctx context.Context, vmid, lines int) (DockerLogs, error) {
+	values := url.Values{"vmid": {strconv.Itoa(vmid)}, "lines": {strconv.Itoa(lines)}}
+	var logs DockerLogs
+	err := c.do(ctx, http.MethodGet, "/v1/logs/docker?"+values.Encode(), nil, &logs)
+
+	return logs, err
+}
+
+// OpenConsole connects to the tty of a container through the agent.
+func (c *Client) OpenConsole(ctx context.Context, vmid int) (*websocket.Conn, error) {
+	conn, response, err := websocket.Dial(ctx, "ws://agent/v1/console/"+strconv.Itoa(vmid), &websocket.DialOptions{
+		// No timeout: a console stays open as long as the user wants.
+		HTTPClient: &http.Client{Transport: c.http.Transport},
+	})
+	if err != nil {
+		if response != nil && response.Body != nil {
+			message, _ := io.ReadAll(io.LimitReader(response.Body, 512))
+			response.Body.Close()
+			if text := strings.TrimSpace(string(message)); text != "" {
+				return nil, fmt.Errorf("%w: %s", ErrConsoleUnavailable, text)
+			}
+		}
+		return nil, fmt.Errorf("host agent: %w", err)
+	}
+
+	return conn, nil
 }
 
 // SignatureHeader carries the bundle signature as base64 JSON.
@@ -161,6 +210,17 @@ func (c *Client) StartUpgrade(ctx context.Context, bundle io.Reader, signature r
 	}
 
 	return nil
+}
+
+func (c *Client) InstallApp(ctx context.Context, app string, answers MediaStackAnswers) error {
+	return c.do(ctx, http.MethodPost, "/v1/apps/"+url.PathEscape(app)+"/install", answers, nil)
+}
+
+func (c *Client) AppInstallStatus(ctx context.Context) (AppInstallStatus, error) {
+	var status AppInstallStatus
+	err := c.do(ctx, http.MethodGet, "/v1/apps/install", nil, &status)
+
+	return status, err
 }
 
 func (c *Client) UpgradeStatus(ctx context.Context) (UpgradeStatus, error) {
@@ -216,6 +276,10 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	if response.StatusCode >= 300 {
 		message, _ := io.ReadAll(io.LimitReader(response.Body, 512))
 		return fmt.Errorf("host agent %s: %s %s", path, response.Status, strings.TrimSpace(string(message)))
+	}
+
+	if out == nil {
+		return nil
 	}
 
 	return json.NewDecoder(response.Body).Decode(out)

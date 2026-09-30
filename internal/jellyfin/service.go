@@ -62,9 +62,8 @@ func (s *Service) client() (*Client, error) {
 // SaveSettings checks the URL and key against Jellyfin before it saves them.
 // An empty key keeps the saved one.
 func (s *Service) SaveSettings(ctx context.Context, input Settings) error {
-	parsed, err := url.Parse(input.URL)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-		return fmt.Errorf("%w: the URL must look like http://192.168.1.20:8096", ErrInvalidSettings)
+	if err := ValidateURL(input.URL); err != nil {
+		return err
 	}
 
 	s.mu.Lock()
@@ -212,6 +211,32 @@ func nowPlaying(session Session) NowPlaying {
 	}
 
 	return playing
+}
+
+func ValidateURL(raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return fmt.Errorf("%w: the URL must look like http://192.168.1.20:8096", ErrInvalidSettings)
+	}
+
+	return nil
+}
+
+// Settings returns the saved settings, with the API key.
+func (s *Service) Settings() Settings {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.settings
+}
+
+func (s *Service) ThemeEnabled(ctx context.Context) (bool, error) {
+	client, err := s.client()
+	if err != nil {
+		return false, err
+	}
+
+	return client.ThemeEnabled(ctx)
 }
 
 func (s *Service) SetTheme(ctx context.Context, enabled bool) error {

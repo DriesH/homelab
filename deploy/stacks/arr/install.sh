@@ -4,7 +4,9 @@
 # qBittorrent, Prowlarr and FlareSolverr go through ProtonVPN via Gluetun.
 #
 #   ./install.sh [--storage local-lvm] [--bridge vmbr0] [--hostname media] [--ctid 130]
-#                [--downloads-size 200] [--jellyfin-ctid 110]
+#                [--downloads-size 200] [--jellyfin-ctid 110] [--answers file]
+# With --answers, it asks nothing and reads the answers from a KEY=value file.
+# The host agent uses this for the Apps page.
 set -euo pipefail
 
 STACK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,6 +19,8 @@ CT_HOSTNAME="media"
 CT_ID=""
 DOWNLOADS_SIZE=200
 JELLYFIN_CTID=""
+ANSWERS=""
+RESTART_JELLYFIN="y"
 
 # Media share on the host. Both this LXC and Jellyfin get it as /data/media.
 MEDIA_MOUNT="/mnt/homelab/media"
@@ -32,6 +36,7 @@ while [[ $# -gt 0 ]]; do
         --ctid) CT_ID="$2"; shift 2 ;;
         --downloads-size) DOWNLOADS_SIZE="$2"; shift 2 ;;
         --jellyfin-ctid) JELLYFIN_CTID="$2"; shift 2 ;;
+        --answers) ANSWERS="$2"; shift 2 ;;
         *) die "unknown option: $1" ;;
     esac
 done
@@ -56,7 +61,39 @@ preflight() {
     fi
 }
 
+# load_answers reads KEY=value lines. Values are only stored, never run.
+load_answers() {
+    local line key value
+    JELLYFIN_API_KEY=""
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ -z "$line" ]] && continue
+        key="${line%%=*}" value="${line#*=}"
+        case "$key" in
+            NAS_SERVER | NAS_EXPORT | WIREGUARD_PRIVATE_KEY | VPN_COUNTRIES | SUBTITLE_LANGUAGES | \
+                ARR_USERNAME | ARR_PASSWORD | JELLYFIN_API_KEY | RESTART_JELLYFIN | STORAGE | DOWNLOADS_SIZE)
+                printf -v "$key" '%s' "$value"
+                ;;
+            *) die "unknown answer: $key" ;;
+        esac
+    done <"$ANSWERS"
+    # It holds the VPN key and the password.
+    rm -f "$ANSWERS"
+
+    ((${#ARR_PASSWORD} >= 12)) || die "password must be at least 12 characters"
+    JELLYFIN_URL=""
+    if [[ -n "$JELLYFIN_CTID" ]]; then
+        JELLYFIN_URL="http://$(container_ip "$JELLYFIN_CTID"):8096"
+    else
+        JELLYFIN_API_KEY=""
+    fi
+}
+
 ask_settings() {
+    if [[ -n "$ANSWERS" ]]; then
+        load_answers
+        return
+    fi
+
     log "A few questions first"
 
     ask NAS_SERVER "NAS address (IP or hostname)"
@@ -133,8 +170,20 @@ create_container() {
         --tags "homelab;media" \
         --description "Homelab media stack"
 
+    CREATED_CT="$CT_ID"
     pct start "$CT_ID"
     wait_for_network "$CT_ID"
+}
+
+# on_exit removes a half-installed container after a failed install from the
+# Apps page, so the next try can start clean.
+on_exit() {
+    local code=$?
+    if ((code != 0)) && [[ -n "$ANSWERS" && -n "${CREATED_CT:-}" ]]; then
+        log "The install failed, removing container $CREATED_CT"
+        pct stop "$CREATED_CT" >/dev/null 2>&1 || true
+        pct destroy "$CREATED_CT" --purge 1 || true
+    fi
 }
 
 install_docker() {
@@ -222,9 +271,10 @@ share_media_with_jellyfin() {
     log "Sharing the media folder with Jellyfin (container $JELLYFIN_CTID) as /data/media"
     pct set "$JELLYFIN_CTID" "--mp$index" "$MEDIA_MOUNT,mp=/data/media,ro=1"
 
-    local answer
-    ask answer "Jellyfin must restart to see the folder. Restart it now? (y/n)" "y"
-    if [[ "$answer" == "y" ]]; then
+    if [[ -z "$ANSWERS" ]]; then
+        ask RESTART_JELLYFIN "Jellyfin must restart to see the folder. Restart it now? (y/n)" "y"
+    fi
+    if [[ "$RESTART_JELLYFIN" == "y" ]]; then
         pct reboot "$JELLYFIN_CTID"
         for _ in $(seq 1 40); do
             curl -sf "$JELLYFIN_URL/System/Info/Public" >/dev/null && return 0
@@ -243,6 +293,7 @@ configure_stack() {
 }
 
 main() {
+    trap on_exit EXIT
     preflight
     ask_settings
     mount_nas
@@ -258,6 +309,8 @@ main() {
     ip="$(container_ip "$CT_ID")"
 
     log "Done"
+    # For the host agent, which shows the links on the Apps page.
+    echo "HOMELAB app media $CT_ID $ip"
     cat <<EOF
 
   Requests (Seerr):  http://$ip:5055   <- finish its setup now, until then anyone on your network can

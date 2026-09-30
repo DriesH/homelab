@@ -12,10 +12,15 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as AppAppsRouteImport } from './routes/_app/apps'
+import { Route as AppBackupsRouteImport } from './routes/_app/backups'
 import { Route as AppHealthRouteImport } from './routes/_app/health'
 import { Route as AppJellyfinRouteImport } from './routes/_app/jellyfin'
+import { Route as AppLogsRouteImport } from './routes/_app/logs'
+import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppTailscaleRouteImport } from './routes/_app/tailscale'
 import { Route as AppUpdatesRouteImport } from './routes/_app/updates'
+import { Route as AppConsoleVmidRouteImport } from './routes/_app/console/$vmid'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -31,6 +36,16 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAppsRoute = AppAppsRouteImport.update({
+  id: '/apps',
+  path: '/apps',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppBackupsRoute = AppBackupsRouteImport.update({
+  id: '/backups',
+  path: '/backups',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppHealthRoute = AppHealthRouteImport.update({
   id: '/health',
   path: '/health',
@@ -39,6 +54,16 @@ const AppHealthRoute = AppHealthRouteImport.update({
 const AppJellyfinRoute = AppJellyfinRouteImport.update({
   id: '/jellyfin',
   path: '/jellyfin',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppLogsRoute = AppLogsRouteImport.update({
+  id: '/logs',
+  path: '/logs',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
 const AppTailscaleRoute = AppTailscaleRouteImport.update({
@@ -51,48 +76,94 @@ const AppUpdatesRoute = AppUpdatesRouteImport.update({
   path: '/updates',
   getParentRoute: () => AppRoute,
 } as any)
+const AppConsoleVmidRoute = AppConsoleVmidRouteImport.update({
+  id: '/console/$vmid',
+  path: '/console/$vmid',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/login': typeof LoginRoute
+  '/apps': typeof AppAppsRoute
+  '/backups': typeof AppBackupsRoute
   '/health': typeof AppHealthRoute
   '/jellyfin': typeof AppJellyfinRoute
+  '/logs': typeof AppLogsRoute
+  '/settings': typeof AppSettingsRoute
   '/tailscale': typeof AppTailscaleRoute
   '/updates': typeof AppUpdatesRoute
+  '/console/$vmid': typeof AppConsoleVmidRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
+  '/apps': typeof AppAppsRoute
+  '/backups': typeof AppBackupsRoute
   '/health': typeof AppHealthRoute
   '/jellyfin': typeof AppJellyfinRoute
+  '/logs': typeof AppLogsRoute
+  '/settings': typeof AppSettingsRoute
   '/tailscale': typeof AppTailscaleRoute
   '/updates': typeof AppUpdatesRoute
   '/': typeof AppIndexRoute
+  '/console/$vmid': typeof AppConsoleVmidRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
+  '/_app/apps': typeof AppAppsRoute
+  '/_app/backups': typeof AppBackupsRoute
   '/_app/health': typeof AppHealthRoute
   '/_app/jellyfin': typeof AppJellyfinRoute
+  '/_app/logs': typeof AppLogsRoute
+  '/_app/settings': typeof AppSettingsRoute
   '/_app/tailscale': typeof AppTailscaleRoute
   '/_app/updates': typeof AppUpdatesRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/console/$vmid': typeof AppConsoleVmidRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/login' | '/health' | '/jellyfin' | '/tailscale' | '/updates'
+    | '/'
+    | '/login'
+    | '/apps'
+    | '/backups'
+    | '/health'
+    | '/jellyfin'
+    | '/logs'
+    | '/settings'
+    | '/tailscale'
+    | '/updates'
+    | '/console/$vmid'
   fileRoutesByTo: FileRoutesByTo
-  to: '/login' | '/health' | '/jellyfin' | '/tailscale' | '/updates' | '/'
+  to:
+    | '/login'
+    | '/apps'
+    | '/backups'
+    | '/health'
+    | '/jellyfin'
+    | '/logs'
+    | '/settings'
+    | '/tailscale'
+    | '/updates'
+    | '/'
+    | '/console/$vmid'
   id:
     | '__root__'
     | '/_app'
     | '/login'
+    | '/_app/apps'
+    | '/_app/backups'
     | '/_app/health'
     | '/_app/jellyfin'
+    | '/_app/logs'
+    | '/_app/settings'
     | '/_app/tailscale'
     | '/_app/updates'
     | '/_app/'
+    | '/_app/console/$vmid'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -123,6 +194,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/apps': {
+      id: '/_app/apps'
+      path: '/apps'
+      fullPath: '/apps'
+      preLoaderRoute: typeof AppAppsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/backups': {
+      id: '/_app/backups'
+      path: '/backups'
+      fullPath: '/backups'
+      preLoaderRoute: typeof AppBackupsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/health': {
       id: '/_app/health'
       path: '/health'
@@ -135,6 +220,20 @@ declare module '@tanstack/react-router' {
       path: '/jellyfin'
       fullPath: '/jellyfin'
       preLoaderRoute: typeof AppJellyfinRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/logs': {
+      id: '/_app/logs'
+      path: '/logs'
+      fullPath: '/logs'
+      preLoaderRoute: typeof AppLogsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/tailscale': {
@@ -151,23 +250,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppUpdatesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/console/$vmid': {
+      id: '/_app/console/$vmid'
+      path: '/console/$vmid'
+      fullPath: '/console/$vmid'
+      preLoaderRoute: typeof AppConsoleVmidRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
 interface AppRouteChildren {
+  AppAppsRoute: typeof AppAppsRoute
+  AppBackupsRoute: typeof AppBackupsRoute
   AppHealthRoute: typeof AppHealthRoute
   AppJellyfinRoute: typeof AppJellyfinRoute
+  AppLogsRoute: typeof AppLogsRoute
+  AppSettingsRoute: typeof AppSettingsRoute
   AppTailscaleRoute: typeof AppTailscaleRoute
   AppUpdatesRoute: typeof AppUpdatesRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppConsoleVmidRoute: typeof AppConsoleVmidRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppAppsRoute: AppAppsRoute,
+  AppBackupsRoute: AppBackupsRoute,
   AppHealthRoute: AppHealthRoute,
   AppJellyfinRoute: AppJellyfinRoute,
+  AppLogsRoute: AppLogsRoute,
+  AppSettingsRoute: AppSettingsRoute,
   AppTailscaleRoute: AppTailscaleRoute,
   AppUpdatesRoute: AppUpdatesRoute,
   AppIndexRoute: AppIndexRoute,
+  AppConsoleVmidRoute: AppConsoleVmidRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha1"
@@ -10,17 +11,23 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
 
+	"github.com/coder/websocket"
+
 	"homelab/internal/agent"
 	"homelab/internal/auth"
 	"homelab/internal/health"
 	"homelab/internal/proxmox"
+	"homelab/internal/settingsfile"
 	"homelab/internal/updates"
 )
 
@@ -46,6 +53,17 @@ func (f *fakeProxmox) NodeStatus(context.Context, string) (proxmox.NodeStatus, e
 func (f *fakeProxmox) RunGuestAction(_ context.Context, node string, guestType proxmox.GuestType, vmid int, action proxmox.GuestAction) (string, error) {
 	f.actions = append(f.actions, fmt.Sprintf("%s/%s/%d/%s", node, guestType, vmid, action))
 	return "UPID:1", nil
+}
+
+func (f *fakeProxmox) Tasks(context.Context, string, int) ([]proxmox.Task, error) {
+	return []proxmox.Task{
+		{UPID: "UPID:pve:1", Type: "vzdump", ID: "101", User: "root@pam", Status: "job errors", StartTime: 100, EndTime: 200},
+		{UPID: "UPID:pve:2", Type: "vzsnapshot", ID: "101", User: "homelab@pve!manager", Status: "OK", StartTime: 50, EndTime: 60},
+	}, nil
+}
+
+func (f *fakeProxmox) TaskLog(_ context.Context, _, upid string, _ int) ([]string, error) {
+	return []string{"log of " + upid}, nil
 }
 
 type offlineAgent struct{}
@@ -333,5 +351,200 @@ func TestHealthCheckEndpoints(t *testing.T) {
 	}
 	if len(fake.added) != 1 || fake.added[0].Target != "http://10.0.0.5:8096" {
 		t.Errorf("unexpected checks: %+v", fake.added)
+	}
+}
+
+func TestTaskLogs(t *testing.T) {
+	server, _ := newTestServer(t)
+	cookie := login(t, server)
+
+	response := request(t, http.MethodGet, server.URL+"/api/logs/tasks", "", cookie)
+	body, _ := io.ReadAll(response.Body)
+	text := string(body)
+	if response.StatusCode != http.StatusOK || strings.Index(text, "vzsnapshot") > strings.Index(text, "vzdump") || !strings.Contains(text, `"level":3`) {
+		t.Fatalf("tasks = %s %s", response.Status, text)
+	}
+
+	for _, path := range []string{"/api/logs/tasks/pve/log?upid=nope", "/api/logs/tasks/pve;rm/log?upid=UPID:pve:1"} {
+		if response := request(t, http.MethodGet, server.URL+path, "", cookie); response.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s: expected 400, got %s", path, response.Status)
+		}
+	}
+	if response := request(t, http.MethodGet, server.URL+"/api/logs/tasks/pve/log?upid=UPID:pve:1", "", cookie); response.StatusCode != http.StatusOK {
+		t.Errorf("task log: expected 200, got %s", response.Status)
+	}
+}
+
+type echoConsole struct{ url string }
+
+func (e echoConsole) OpenConsole(ctx context.Context, _ int) (*websocket.Conn, error) {
+	conn, _, err := websocket.Dial(ctx, e.url, nil)
+	return conn, err
+}
+
+func TestConsoleRelayAndOrigin(t *testing.T) {
+	echo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		for {
+			kind, data, err := conn.Read(r.Context())
+			if err != nil {
+				return
+			}
+			conn.Write(r.Context(), kind, data)
+		}
+	}))
+	t.Cleanup(echo.Close)
+
+	server, _ := newTestServerWithOptions(t, func(options *Options) {
+		options.Console = echoConsole{url: "ws" + strings.TrimPrefix(echo.URL, "http")}
+	})
+	cookie := login(t, server)
+	base := "ws" + strings.TrimPrefix(server.URL, "http")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	header := http.Header{"Cookie": {cookie.String()}, "Origin": {server.URL}}
+	conn, _, err := websocket.Dial(ctx, base+"/api/guests/200/console", &websocket.DialOptions{HTTPHeader: header})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn.Write(ctx, websocket.MessageBinary, []byte("ls\n"))
+	if _, data, err := conn.Read(ctx); err != nil || string(data) != "ls\n" {
+		t.Fatalf("echo = %q, %v", data, err)
+	}
+	conn.Close(websocket.StatusNormalClosure, "")
+
+	header.Set("Origin", "https://evil.example")
+	if _, _, err := websocket.Dial(ctx, base+"/api/guests/200/console", &websocket.DialOptions{HTTPHeader: header}); err == nil {
+		t.Error("a console opened from another origin")
+	}
+
+	header.Set("Origin", server.URL)
+	if _, response, err := websocket.Dial(ctx, base+"/api/guests/999/console", &websocket.DialOptions{HTTPHeader: header}); err == nil || response.StatusCode != http.StatusNotFound {
+		t.Errorf("unknown container: err = %v", err)
+	}
+	if _, response, err := websocket.Dial(ctx, base+"/api/guests/200/console", nil); err == nil || response.StatusCode != http.StatusUnauthorized {
+		t.Errorf("without session: err = %v", err)
+	}
+}
+
+type fakeSettingsFile struct {
+	imported []bool
+}
+
+func (f *fakeSettingsFile) Export(context.Context) ([]byte, error) {
+	return []byte("version: 1\n"), nil
+}
+
+func (f *fakeSettingsFile) Import(_ context.Context, data []byte, apply bool) (settingsfile.Result, error) {
+	if _, err := settingsfile.Parse(data); err != nil {
+		return settingsfile.Result{}, err
+	}
+	f.imported = append(f.imported, apply)
+	return settingsfile.Result{Applied: apply, Changes: []settingsfile.Change{}}, nil
+}
+
+func TestSettingsFileEndpoints(t *testing.T) {
+	fake := &fakeSettingsFile{}
+	server, _ := newTestServerWithOptions(t, func(options *Options) { options.SettingsFile = fake })
+	cookie := login(t, server)
+
+	if response := request(t, http.MethodGet, server.URL+"/api/settings/export", "", nil); response.StatusCode != http.StatusUnauthorized {
+		t.Errorf("without session: expected 401, got %s", response.Status)
+	}
+	response := request(t, http.MethodGet, server.URL+"/api/settings/export", "", cookie)
+	if response.StatusCode != http.StatusOK || response.Header.Get("Content-Disposition") != `attachment; filename="homelab.yaml"` {
+		t.Errorf("export: %s %v", response.Status, response.Header)
+	}
+
+	if response := request(t, http.MethodPost, server.URL+"/api/settings/import", "version: 1\nhealth: {checks: []}", cookie); response.StatusCode != http.StatusOK {
+		t.Errorf("preview: expected 200, got %s", response.Status)
+	}
+	if response := request(t, http.MethodPost, server.URL+"/api/settings/import?apply=1", "version: 1\nhealth: {checks: []}", cookie); response.StatusCode != http.StatusOK {
+		t.Errorf("apply: expected 200, got %s", response.Status)
+	}
+	if response := request(t, http.MethodPost, server.URL+"/api/settings/import?apply=1", "version: 1\nnope: 1", cookie); response.StatusCode != http.StatusBadRequest {
+		t.Errorf("invalid: expected 400, got %s", response.Status)
+	}
+	if response := request(t, http.MethodPost, server.URL+"/api/settings/import", strings.Repeat("x", settingsfile.MaxSize+10), cookie); response.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Errorf("too large: expected 413, got %s", response.Status)
+	}
+	if len(fake.imported) != 2 || fake.imported[0] || !fake.imported[1] {
+		t.Errorf("imports = %v", fake.imported)
+	}
+}
+
+func TestDataBackupEndpoints(t *testing.T) {
+	dataDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dataDir, "admin.json"), []byte(`{"username":"admin"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restarted := make(chan struct{}, 1)
+	var messages []string
+	server, _ := newTestServerWithOptions(t, func(options *Options) {
+		options.DataDir = dataDir
+		options.Restart = func() { restarted <- struct{}{} }
+		options.Notify = func(_ context.Context, text string) { messages = append(messages, text) }
+	})
+	cookie := login(t, server)
+	url := server.URL + "/api/data-backup/download"
+
+	if response := request(t, http.MethodPost, url, `{"password":"wrong","passphrase":"long enough passphrase"}`, cookie); response.StatusCode != http.StatusForbidden {
+		t.Errorf("wrong password: expected 403, got %s", response.Status)
+	}
+	if response := request(t, http.MethodPost, url, `{"password":"secret","passphrase":"short"}`, cookie); response.StatusCode != http.StatusBadRequest {
+		t.Errorf("weak passphrase: expected 400, got %s", response.Status)
+	}
+	response := request(t, http.MethodPost, url, `{"password":"secret","passphrase":"long enough passphrase"}`, cookie)
+	backup, _ := io.ReadAll(response.Body)
+	if response.StatusCode != http.StatusOK || !strings.HasPrefix(response.Header.Get("Content-Disposition"), `attachment; filename="homelab-data-`) {
+		t.Fatalf("download: %s %v", response.Status, response.Header)
+	}
+	if len(messages) != 1 {
+		t.Errorf("messages = %v", messages)
+	}
+
+	restore := func(password, passphrase string, file []byte) *http.Response {
+		var body bytes.Buffer
+		form := multipart.NewWriter(&body)
+		form.WriteField("password", password)
+		form.WriteField("passphrase", passphrase)
+		part, _ := form.CreateFormFile("file", "backup.hlbackup")
+		part.Write(file)
+		form.Close()
+
+		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/data-backup/restore", &body)
+		req.Header.Set("Content-Type", form.FormDataContentType())
+		req.Header.Set("X-Homelab-Request", "1")
+		req.AddCookie(cookie)
+		response, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { response.Body.Close() })
+		return response
+	}
+
+	if response := restore("wrong", "long enough passphrase", backup); response.StatusCode != http.StatusForbidden {
+		t.Errorf("restore, wrong password: expected 403, got %s", response.Status)
+	}
+	if response := restore("secret", "other passphrase!!", backup); response.StatusCode != http.StatusBadRequest {
+		t.Errorf("restore, wrong passphrase: expected 400, got %s", response.Status)
+	}
+	if response := restore("secret", "long enough passphrase", backup); response.StatusCode != http.StatusOK {
+		t.Fatalf("restore: expected 200, got %s", response.Status)
+	}
+
+	select {
+	case <-restarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the manager did not restart")
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, ".restore-pending", "admin.json")); err != nil {
+		t.Fatalf("restore is not staged: %v", err)
 	}
 }

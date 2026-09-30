@@ -24,7 +24,7 @@ const (
 
 const (
 	checkTimeout = 10 * time.Second
-	maxChecks    = 50
+	MaxChecks    = 50
 )
 
 var ErrInvalidCheck = errors.New("invalid service check")
@@ -43,7 +43,7 @@ type CheckInput struct {
 	Target string    `json:"target"`
 }
 
-func (input CheckInput) validate() error {
+func (input CheckInput) Validate() error {
 	name := strings.TrimSpace(input.Name)
 	if name == "" || utf8.RuneCountInString(name) > 64 {
 		return fmt.Errorf("%w: the name must be 1 to 64 characters", ErrInvalidCheck)

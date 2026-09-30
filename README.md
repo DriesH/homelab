@@ -40,6 +40,59 @@ When the problem is fixed, you get a second message. Disks and shares are checke
 
 The host agent finds network shares in the systemd `.mount` units and `/etc/fstab` of the Proxmox host. It can't read the SMART status of the disks inside the NAS. Use the disk warnings of the NAS itself for that. Alerts use the Telegram settings from the Updates page.
 
+## Backups
+
+The Backups page makes a normal Proxmox backup job (`homelab-backup`), so it also runs while Homelab is down, and you can see it in the Proxmox UI.
+
+- Choose the days, the time, the storage and how many daily, weekly and monthly backups to keep. By default, every guest is backed up at 03:00 on `local`.
+- New containers and VMs are included automatically. Turn one off with its switch.
+- Back up one guest now, restore a backup or delete it. A restore shuts the guest down, restores it to the storage of its current disk, and starts it again.
+- Homelab can't restore its own container. Use `homelab-restore` on the host (see below).
+- Failed scheduled backups are sent to Telegram.
+
+The host agent creates the job with checked settings, so the API token needs no `Sys.Modify`. The token only has `VM.Backup` and `Datastore.AllocateSpace` for backups.
+
+### Restoring the manager
+
+The backup job also backs up the manager container. To restore it, run this as root on the Proxmox host:
+
+```bash
+homelab-restore                                                   # choose from the backups of the manager
+homelab-restore nas:backup/vzdump-lxc-120-2026_09_29-03_00_02.tar.zst   # or give one
+```
+
+It stops the manager, restores the backup to the storage of its current disk, and waits until the manager runs again.
+
+On a new Proxmox host, extract the release bundle and run `./install.sh --restore <backup>` with a backup on the NAS. It also installs the host agent and makes a new API token, because the old token only works on the old host.
+
+### Data backup
+
+The Settings page can also download an encrypted copy of the data of Homelab: the account, tokens, settings, history and the certificate authority. Use it when the Proxmox backups are gone. You need your password and a passphrase of at least 12 characters. Keep the passphrase: without it, nobody can open the file.
+
+To restore it, install Homelab, log in, and upload the file on the Settings page. Homelab restarts with the data from the file, and you log in with the account from the backup. The file uses AES-256-GCM with a key from Argon2id.
+
+## Logs
+
+The Logs page shows:
+
+- **Host**: the journal of the Proxmox host;
+- **Container**: the journal inside a container;
+- **Docker**: the logs of the Docker apps in a container, like Radarr and qBittorrent;
+- **Tasks**: the Proxmox tasks, like backups and snapshots. Click a task to see its log.
+
+Filter by level, by source and by text. Turn on "Follow" to refresh every 5 seconds. Docker has no log levels, so Homelab guesses them from words like `ERROR` and `[Warn]`.
+
+The host agent reads the journals and Docker logs with fixed, read-only commands.
+
+## Console
+
+Open the console of a running container from its menu on the Overview. It is the same tty login as the Console tab in Proxmox. Containers from community-scripts.org log in as root automatically.
+
+- The host agent runs `pct console <id>` and nothing else, so a console has the same power as the Proxmox `VM.Console` privilege.
+- Only the Homelab page itself can open a console (the websocket checks the origin).
+- Opening a console sends a Telegram message.
+- The agent allows 4 consoles at the same time.
+
 ## Tailscale
 
 The installer puts Tailscale in the manager container. Connect it on the Tailscale page, with your Tailscale account or an auth key.
@@ -48,6 +101,48 @@ The installer puts Tailscale in the manager container. Connect it on the Tailsca
 - **Share your home network**: Homelab becomes a subnet router, so your devices can reach Jellyfin and the NAS at their normal address. Approve the route in the admin console after you turn it on.
 
 Tailscale keeps the container's own DNS (`--accept-dns=false`), so the LAN names keep working.
+
+## Settings file
+
+On the Settings page (account menu), download all settings as `homelab.yaml`. Keep it in git, or import it on a new server.
+
+```yaml
+version: 1
+notifications:
+  telegram:
+    chatId: "123456789"
+updates:
+  enabled: true
+  day: sun
+  time: "04:00"
+  exclude: [105]
+backups:
+  enabled: true
+  days: [] # no days means every day
+  time: "03:00"
+  storage: local
+  exclude: []
+  keep: { daily: 7, weekly: 4, monthly: 3 }
+health:
+  checks:
+    - { name: Jellyfin, type: http, target: "http://192.168.1.20:8096" }
+    - { name: SSH, type: tcp, target: "192.168.1.2:22" }
+tailscale:
+  serve: true
+  shareSubnet: true
+  subnet: 192.168.1.0/24
+jellyfin:
+  url: http://192.168.1.20:8096
+  theme: true
+selfUpdate:
+  repo: DriesH/homelab
+  autoInstall: false
+```
+
+- Tokens, passwords and API keys are not in the file. Enter the Telegram bot token and the Jellyfin API key on their pages. Until then, an import skips those sections.
+- A section that is not in the file stays as it is.
+- An import first shows which sections change. Nothing is saved until you apply it.
+- Unknown keys are an error, so a typo does not go unnoticed.
 
 ## Install
 
@@ -66,6 +161,24 @@ The manager checks the GitHub releases every 6 hours. When there is a new versio
 The host agent only installs a bundle that is signed with the release key. It keeps the previous version, and brings it back when the new version does not start within a minute.
 
 For a private repo, create a fine-grained token with read-only access to Contents of this repo only, and enter it on the Updates page.
+
+## Uninstall
+
+Run this as root on the Proxmox host:
+
+```bash
+homelab-uninstall
+```
+
+It removes the host agent, the Proxmox user, the API token and the role. It asks before it deletes:
+
+- the manager container (yes by default). Tailscale logs out first. If you keep the container, only its mount of the agent is removed, so it still starts.
+- the snapshots that Homelab made before updates (yes by default)
+- the backup job (no by default, because it also works without Homelab)
+
+Nothing changes until you answer "yes" to the last question. The backup files, the media stack and the NAS mount always stay.
+
+Installs from before this version have no `homelab-uninstall` yet. Update Homelab first, or run `./install.sh --uninstall` from the release bundle.
 
 ### Making a release
 
@@ -94,13 +207,17 @@ Before you start:
 3. Create a ProtonVPN WireGuard key with "NAT-PMP (Port Forwarding)" on.
 4. Optional: create a Jellyfin API key (Dashboard > API Keys).
 
-Then run `stacks/arr/install.sh` from the bundle as root on the Proxmox host. The installer:
+Then install it on the Apps page. The host agent runs the installer from the release bundle, in its own container, and the page shows the log. If the install fails, it removes the container it made, so you can try again. Telegram tells you when it is done.
+
+You can also run `stacks/arr/install.sh` from the bundle as root on the Proxmox host. It asks the same questions. The installer:
 
 - mounts the NAS share on the host and shares it with the new LXC and with Jellyfin as `/data/media`;
 - keeps downloads on a local disk (`/data/downloads`);
 - connects all apps: logins, root folders, qBittorrent, Prowlarr sync, FlareSolverr, subtitles and Jellyfin libraries.
 
-After the install, finish the Seerr setup and add your indexers in Prowlarr.
+After the install, the Apps page shows links to each app. Finish the Seerr setup first, then add your indexers in Prowlarr.
+
+The agent checks every answer before it writes them to a file that only root can read. The installer deletes that file when it has read it.
 
 ## Development
 

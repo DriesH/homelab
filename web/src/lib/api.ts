@@ -232,25 +232,177 @@ export type Tailscale = {
     peers: { name: string; dnsName: string; os: string; ips: string[]; online: boolean; lastSeen?: string }[]
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+export type BackupJob = {
+    enabled: boolean
+    days: string[]
+    hour: number
+    minute: number
+    storage: string
+    exclude: number[]
+    keepDaily: number
+    keepWeekly: number
+    keepMonthly: number
+}
+
+export type GuestBackup = {
+    volid: string
+    storage: string
+    createdAt: string
+    size: number
+    notes: string
+    protected: boolean
+}
+
+export type BackupRun = {
+    id: string
+    kind: 'backup' | 'restore' | 'delete'
+    vmid: number
+    target: string
+    succeeded: boolean
+    message: string
+    startedAt: string
+    finishedAt: string
+}
+
+export type Backups = {
+    busy: string
+    job: BackupJob & { exists: boolean; nextRun?: string; custom?: string }
+    storages: { node: string; name: string; type: string; total: number; used: number }[]
+    guests: {
+        vmid: number
+        name: string
+        type: 'lxc' | 'qemu'
+        status: string
+        included: boolean
+        self: boolean
+        backups: GuestBackup[]
+    }[]
+    history: BackupRun[]
+}
+
+export type LogEntry = { time: string; level: number; source: string; message: string }
+
+export type TaskEntry = LogEntry & { node: string; upid: string }
+
+export type DockerLogs = {
+    containers: { name: string; state: string; image: string }[]
+    entries: LogEntry[]
+}
+
+export type AppInstall = {
+    app?: string
+    state: 'idle' | 'running' | 'succeeded' | 'failed'
+    message?: string
+    startedAt?: string
+    finishedAt?: string
+    vmid?: number
+    ip?: string
+    log?: string
+}
+
+export type CatalogApp = {
+    id: string
+    name: string
+    description: string
+    links: { name: string; description: string; url?: string }[]
+    installed: boolean
+    vmid?: number
+    status?: string
+    install: AppInstall | null
+}
+
+export type Apps = {
+    apps: CatalogApp[]
+    defaults: {
+        storages: string[]
+        storage: string
+        jellyfinVmid?: number
+        vpnCountries: string
+        subtitleLanguages: string
+        username: string
+        downloadsSize: number
+    }
+    error?: string
+}
+
+export type MediaStackAnswers = {
+    nasServer: string
+    nasExport: string
+    wireguardPrivateKey: string
+    vpnCountries: string
+    subtitleLanguages: string
+    username: string
+    password: string
+    jellyfinApiKey: string
+    restartJellyfin: boolean
+    storage: string
+    downloadsSize: number
+}
+
+export type SettingsChange = {
+    section: 'selfUpdate' | 'notifications' | 'updates' | 'health' | 'backups' | 'tailscale' | 'jellyfin'
+    status: 'unchanged' | 'changed' | 'applied' | 'skipped' | 'failed'
+    message?: string
+}
+
+export type SettingsImport = { applied: boolean; changes: SettingsChange[] }
+
+async function fail(response: Response): Promise<never> {
+    const data = await response.json().catch(() => ({}))
+    throw new ApiError(response.status, data.error ?? response.statusText)
+}
+
+// downloadDataBackup returns the encrypted backup and its file name.
+async function downloadDataBackup(password: string, passphrase: string) {
+    const response = await fetch('/api/data-backup/download', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-Homelab-Request': '1' },
+        body: JSON.stringify({ password, passphrase }),
+    })
+    if (!response.ok) {
+        return fail(response)
+    }
+
+    const name = /filename="([^"]+)"/.exec(response.headers.get('Content-Disposition') ?? '')?.[1]
+    return { blob: await response.blob(), name: name ?? 'homelab-data.hlbackup' }
+}
+
+async function restoreDataBackup(file: File, password: string, passphrase: string) {
+    const form = new FormData()
+    form.append('password', password)
+    form.append('passphrase', passphrase)
+    form.append('file', file)
+
+    const response = await fetch('/api/data-backup/restore', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'X-Homelab-Request': '1' },
+        body: form,
+    })
+    if (!response.ok) {
+        return fail(response)
+    }
+}
+
+// A string body is sent as it is, for example YAML. Anything else is sent as JSON.
+async function request<T>(method: string, path: string, body?: unknown, contentType = 'application/json'): Promise<T> {
     const response = await fetch(`/api${path}`, {
         method,
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'X-Homelab-Request': '1' },
-        body: body === undefined ? undefined : JSON.stringify(body),
+        headers: { 'Content-Type': contentType, 'X-Homelab-Request': '1' },
+        body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body),
     })
 
     if (response.status === 204) {
         return undefined as T
     }
 
-    const data = await response.json().catch(() => ({}))
-
     if (!response.ok) {
-        throw new ApiError(response.status, data.error ?? response.statusText)
+        return fail(response)
     }
 
-    return data as T
+    return (await response.json().catch(() => ({}))) as T
 }
 
 export const api = {
@@ -276,11 +428,33 @@ export const api = {
     checkSelfUpdate: () => request<SelfUpdate>('POST', '/self-update/check'),
     installSelfUpdate: () => request<void>('POST', '/self-update/install'),
     saveSelfUpdateSettings: (settings: SelfUpdateSettings) => request<void>('PUT', '/self-update/settings', settings),
+    backups: () => request<Backups>('GET', '/backups'),
+    saveBackupJob: (job: BackupJob) => request<void>('PUT', '/backups/job', job),
+    backUpGuest: (vmid: number) => request<void>('POST', `/backups/guests/${vmid}`),
+    restoreBackup: (vmid: number, volid: string) => request<void>('POST', '/backups/restore', { vmid, volid }),
+    deleteBackup: (volid: string) => request<void>('POST', '/backups/delete', { volid }),
+    journal: (vmid: number, priority: number, lines = 500) =>
+        request<LogEntry[]>(
+            'GET',
+            `/logs/journal?${new URLSearchParams({ vmid: String(vmid), priority: String(priority), lines: String(lines) })}`,
+        ),
+    dockerLogs: (vmid: number, lines = 200) =>
+        request<DockerLogs>('GET', `/logs/docker?${new URLSearchParams({ vmid: String(vmid), lines: String(lines) })}`),
+    tasks: () => request<TaskEntry[]>('GET', '/logs/tasks'),
+    taskLog: (node: string, upid: string) =>
+        request<{ lines: string[] }>('GET', `/logs/tasks/${node}/log?${new URLSearchParams({ upid })}`),
     tailscale: () => request<Tailscale>('GET', '/tailscale'),
     connectTailscale: (authKey: string) => request<void>('POST', '/tailscale/connect', { authKey }),
     logoutTailscale: () => request<void>('POST', '/tailscale/logout'),
     setTailscaleServe: (enabled: boolean) => request<void>('PUT', '/tailscale/serve', { enabled }),
     saveTailscaleSettings: (settings: TailscaleSettings) => request<void>('PUT', '/tailscale/settings', settings),
+    apps: () => request<Apps>('GET', '/apps'),
+    installApp: (id: string, answers: MediaStackAnswers) => request<void>('POST', `/apps/${id}/install`, answers),
+    settingsExportUrl: '/api/settings/export',
+    downloadDataBackup,
+    restoreDataBackup,
+    importSettings: (yaml: string, apply: boolean) =>
+        request<SettingsImport>('POST', `/settings/import${apply ? '?apply=1' : ''}`, yaml, 'application/yaml'),
     health: () => request<Health>('GET', '/health'),
     refreshHealth: () => request<Health>('POST', '/health/refresh'),
     addCheck: (input: CheckInput) => request<ServiceCheck>('POST', '/health/checks', input),

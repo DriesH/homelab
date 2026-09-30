@@ -154,7 +154,7 @@ func TestCheckInputValidation(t *testing.T) {
 		{Name: "App", Kind: "ping", Target: "10.0.0.5"},
 	}
 	for _, input := range invalid {
-		if err := input.validate(); !errors.Is(err, ErrInvalidCheck) {
+		if err := input.Validate(); !errors.Is(err, ErrInvalidCheck) {
 			t.Errorf("%+v: err = %v, want ErrInvalidCheck", input, err)
 		}
 	}
@@ -270,5 +270,50 @@ func TestShareAlerts(t *testing.T) {
 	want := "⚠️ Share nas:/volume1/media is 95% full\n✅ Fixed: Share nas:/volume1/media is not mounted at /mnt/homelab/media"
 	if len(h.messages) != 2 || h.messages[1] != want {
 		t.Fatalf("messages = %q", h.messages)
+	}
+}
+
+func TestSetChecksKeepsUnchangedChecks(t *testing.T) {
+	h := newHarness(t)
+	kept, err := h.service.AddCheck(CheckInput{Name: "Jellyfin", Kind: HTTPCheck, Target: "http://10.0.0.5:8096"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.service.AddCheck(CheckInput{Name: "Old", Kind: TCPCheck, Target: "10.0.0.9:22"}); err != nil {
+		t.Fatal(err)
+	}
+	h.service.CheckServices(context.Background())
+
+	err = h.service.SetChecks([]CheckInput{
+		{Name: "SSH", Kind: TCPCheck, Target: "10.0.0.2:22"},
+		{Name: " Jellyfin ", Kind: HTTPCheck, Target: "http://10.0.0.5:8096"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	services := h.service.Status().Services
+	if len(services) != 2 {
+		t.Fatalf("services = %+v", services)
+	}
+	checks := h.service.Checks()
+	if checks[1].ID != kept.ID || checks[0].ID == kept.ID {
+		t.Fatalf("checks = %+v, kept %s", checks, kept.ID)
+	}
+	for _, service := range services {
+		want := StatusPending
+		if service.ID == kept.ID {
+			want = StatusUp
+		}
+		if service.Status != want {
+			t.Fatalf("%s status = %s, want %s", service.Name, service.Status, want)
+		}
+	}
+
+	if err := h.service.SetChecks([]CheckInput{{Name: "Bad", Kind: "ping", Target: "x"}}); !errors.Is(err, ErrInvalidCheck) {
+		t.Fatalf("err = %v", err)
+	}
+	if len(h.service.Checks()) != 2 {
+		t.Fatal("an invalid list changed the checks")
 	}
 }

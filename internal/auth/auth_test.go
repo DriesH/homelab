@@ -149,3 +149,19 @@ func TestSessionsSurviveRestart(t *testing.T) {
 		t.Fatal("expired sessions were loaded")
 	}
 }
+
+func TestCheckPasswordCountsFailures(t *testing.T) {
+	service := newTestService(t, time.Unix(59, 0))
+
+	if err := service.CheckPassword("secret", "10.0.0.1"); err != nil {
+		t.Fatalf("right password: %v", err)
+	}
+	for range maxFailures {
+		if err := service.CheckPassword("wrong", "10.0.0.1"); !errors.Is(err, ErrInvalidCredentials) {
+			t.Fatalf("wrong password: %v", err)
+		}
+	}
+	if err := service.CheckPassword("secret", "10.0.0.1"); !errors.Is(err, ErrLockedOut) {
+		t.Fatalf("after failures: %v", err)
+	}
+}
