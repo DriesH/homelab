@@ -18,7 +18,7 @@ AGENT_SOCKET_DIR="/var/lib/homelab-agent/socket"
 
 PVE_USER="homelab@pve"
 PVE_ROLE="HomelabManager"
-PVE_PRIVS="Sys.Audit,VM.Audit,VM.PowerMgmt,Datastore.Audit"
+PVE_PRIVS="Sys.Audit,VM.Audit,VM.PowerMgmt,VM.Snapshot,VM.Snapshot.Rollback,Datastore.Audit"
 PVE_TOKEN="manager"
 
 # shellcheck source=deploy/lib.sh
@@ -126,6 +126,8 @@ setup_container() {
 
     cat >"$env_file" <<EOF
 HOMELAB_HOSTNAME=$CT_HOSTNAME.local
+HOMELAB_SELF_VMID=$CT_ID
+TZ=$(timedatectl show -p Timezone --value)
 PROXMOX_URL=https://$host_ip:8006
 PROXMOX_TOKEN_ID=$PVE_USER!$PVE_TOKEN
 PROXMOX_TOKEN_SECRET=$TOKEN_SECRET

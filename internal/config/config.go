@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"os"
+	"strconv"
 )
 
 type Config struct {
@@ -11,6 +12,8 @@ type Config struct {
 	HTTPAddr    string
 	DataDir     string
 	AgentSocket string
+	// SelfVMID is the manager's own container, 0 when unknown.
+	SelfVMID int
 	// Dev serves plain HTTP on HTTPAddr so the Vite dev server can proxy to it.
 	Dev     bool
 	Proxmox Proxmox
@@ -32,6 +35,7 @@ func Load() (Config, error) {
 		DataDir:     DataDir(),
 		AgentSocket: env("HOMELAB_AGENT_SOCKET", "/mnt/homelab-agent/agent.sock"),
 		Dev:         os.Getenv("HOMELAB_DEV") == "1",
+		SelfVMID:    envInt("HOMELAB_SELF_VMID"),
 		Proxmox: Proxmox{
 			URL:         os.Getenv("PROXMOX_URL"),
 			TokenID:     os.Getenv("PROXMOX_TOKEN_ID"),
@@ -49,6 +53,12 @@ func Load() (Config, error) {
 
 func DataDir() string {
 	return env("HOMELAB_DATA_DIR", "/var/lib/homelab")
+}
+
+func envInt(key string) int {
+	value, _ := strconv.Atoi(os.Getenv(key))
+
+	return value
 }
 
 func env(key, fallback string) string {

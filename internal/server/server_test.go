@@ -20,6 +20,7 @@ import (
 	"homelab/internal/agent"
 	"homelab/internal/auth"
 	"homelab/internal/proxmox"
+	"homelab/internal/updates"
 )
 
 const testSecret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
@@ -55,6 +56,12 @@ func (offlineAgent) Health(context.Context) (agent.Health, error) {
 func newTestServer(t *testing.T) (*httptest.Server, *fakeProxmox) {
 	t.Helper()
 
+	return newTestServerWith(t, nil)
+}
+
+func newTestServerWith(t *testing.T, fakeUpdates Updates) (*httptest.Server, *fakeProxmox) {
+	t.Helper()
+
 	hash, err := auth.HashPassword("secret")
 	if err != nil {
 		t.Fatal(err)
@@ -65,6 +72,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *fakeProxmox) {
 		Auth:    auth.NewService(auth.Admin{Username: "admin", PasswordHash: hash, TOTPSecret: testSecret}),
 		Proxmox: pve,
 		Agent:   offlineAgent{},
+		Updates: fakeUpdates,
 		Web:     fstest.MapFS{"index.html": {Data: []byte("<h1>app</h1>")}},
 		Logger:  slog.New(slog.DiscardHandler),
 	})
@@ -203,5 +211,39 @@ func TestUnknownPathsServeTheApp(t *testing.T) {
 	}
 	if response.Header.Get("Content-Security-Policy") == "" {
 		t.Error("missing CSP header")
+	}
+}
+
+type fakeUpdates struct {
+	Updates
+	started []int
+}
+
+func (f *fakeUpdates) StartCheck(context.Context) error { return updates.ErrBusy }
+
+func (f *fakeUpdates) StartGuestUpdate(_ context.Context, vmid int) error {
+	f.started = append(f.started, vmid)
+	return nil
+}
+
+func TestUpdateEndpoints(t *testing.T) {
+	fake := &fakeUpdates{}
+	server, _ := newTestServerWith(t, fake)
+	cookie := login(t, server)
+
+	if response := request(t, http.MethodPost, server.URL+"/api/updates/check", "", cookie); response.StatusCode != http.StatusConflict {
+		t.Errorf("busy check: expected 409, got %s", response.Status)
+	}
+	if response := request(t, http.MethodPost, server.URL+"/api/updates/guests/12", "", cookie); response.StatusCode != http.StatusBadRequest {
+		t.Errorf("bad vmid: expected 400, got %s", response.Status)
+	}
+	if response := request(t, http.MethodPost, server.URL+"/api/updates/guests/101", "", cookie); response.StatusCode != http.StatusAccepted {
+		t.Errorf("guest update: expected 202, got %s", response.Status)
+	}
+	if len(fake.started) != 1 || fake.started[0] != 101 {
+		t.Errorf("unexpected started updates: %v", fake.started)
+	}
+	if response := request(t, http.MethodPost, server.URL+"/api/updates/host", "", nil); response.StatusCode != http.StatusUnauthorized {
+		t.Errorf("host update without session: expected 401, got %s", response.Status)
 	}
 }

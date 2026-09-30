@@ -21,6 +21,7 @@ import (
 	"homelab/internal/proxmox"
 	"homelab/internal/server"
 	"homelab/internal/tlsca"
+	"homelab/internal/updates"
 	"homelab/web"
 )
 
@@ -50,17 +51,32 @@ func serve() error {
 		return err
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	agentClient := agent.NewClient(cfg.AgentSocket)
+	updateService, err := updates.New(updates.Options{
+		DataDir:  cfg.DataDir,
+		Proxmox:  pve,
+		Agent:    agentClient,
+		SelfVMID: cfg.SelfVMID,
+		Logger:   logger,
+	})
+	if err != nil {
+		return err
+	}
+	go updateService.RunScheduler(ctx)
+
 	handler := server.New(server.Options{
 		Auth:          auth.NewService(admin),
 		Proxmox:       pve,
-		Agent:         agent.NewClient(cfg.AgentSocket),
+		Agent:         agentClient,
+		Updates:       updateService,
+		Background:    ctx,
 		Web:           webFS,
 		SecureCookies: !cfg.Dev,
 		Logger:        logger,
 	})
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	if cfg.Dev {
 		logger.Warn("dev mode: serving plain HTTP", "addr", cfg.HTTPAddr)

@@ -54,8 +54,12 @@ func run(socketPath string, socketGID int, logger *slog.Logger) error {
 		return err
 	}
 
+	runner := agent.NewRunner()
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", health)
+	mux.HandleFunc("POST /v1/jobs", startJob(runner, logger))
+	mux.HandleFunc("GET /v1/jobs/{id}", getJob(runner))
 
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 
@@ -79,6 +83,49 @@ func run(socketPath string, socketGID int, logger *slog.Logger) error {
 func health(w http.ResponseWriter, r *http.Request) {
 	hostname, _ := os.Hostname()
 
+	writeJSON(w, http.StatusOK, agent.Health{Status: "ok", Hostname: hostname, Version: version})
+}
+
+func startJob(runner *agent.Runner, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var request agent.JobRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&request); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		job, err := runner.Start(request)
+		switch {
+		case errors.Is(err, agent.ErrInvalidJob):
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		case errors.Is(err, agent.ErrBusy):
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		case err != nil:
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		logger.Info("job started", "id", job.ID, "kind", job.Kind, "vmid", job.VMID)
+		writeJSON(w, http.StatusAccepted, job)
+	}
+}
+
+func getJob(runner *agent.Runner) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		job, err := runner.Get(r.PathValue("id"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, job)
+	}
+}
+
+func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(agent.Health{Status: "ok", Hostname: hostname, Version: version})
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(value)
 }

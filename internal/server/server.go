@@ -12,6 +12,7 @@ import (
 	"homelab/internal/agent"
 	"homelab/internal/auth"
 	"homelab/internal/proxmox"
+	"homelab/internal/updates"
 )
 
 const sessionCookie = "homelab_session"
@@ -30,11 +31,24 @@ type Agent interface {
 	Health(ctx context.Context) (agent.Health, error)
 }
 
+type Updates interface {
+	Status(ctx context.Context) (updates.View, error)
+	Run(id string) (updates.Run, error)
+	StartCheck(ctx context.Context) error
+	StartHostUpdate(ctx context.Context) error
+	StartGuestUpdate(ctx context.Context, vmid int) error
+	SaveSettings(input updates.SettingsInput) error
+	SendTestNotification(ctx context.Context) error
+}
+
 type Options struct {
 	Auth    *auth.Service
 	Proxmox Proxmox
 	Agent   Agent
-	Web     fs.FS
+	Updates Updates
+	// Background is the context for work that outlives a request, like updates.
+	Background context.Context
+	Web        fs.FS
 	// SecureCookies is false only in dev mode, where we serve plain HTTP.
 	SecureCookies bool
 	Logger        *slog.Logger
@@ -53,6 +67,13 @@ func New(options Options) http.Handler {
 	mux.Handle("GET /api/auth/me", s.requireSession(http.HandlerFunc(s.me)))
 	mux.Handle("GET /api/overview", s.requireSession(http.HandlerFunc(s.overview)))
 	mux.Handle("POST /api/guests/{node}/{type}/{vmid}/{action}", s.requireSession(http.HandlerFunc(s.guestAction)))
+	mux.Handle("GET /api/updates", s.requireSession(http.HandlerFunc(s.updatesStatus)))
+	mux.Handle("GET /api/updates/runs/{id}", s.requireSession(http.HandlerFunc(s.updatesRun)))
+	mux.Handle("POST /api/updates/check", s.requireSession(http.HandlerFunc(s.updatesCheck)))
+	mux.Handle("POST /api/updates/host", s.requireSession(http.HandlerFunc(s.updatesHost)))
+	mux.Handle("POST /api/updates/guests/{vmid}", s.requireSession(http.HandlerFunc(s.updatesGuest)))
+	mux.Handle("PUT /api/updates/settings", s.requireSession(http.HandlerFunc(s.updatesSettings)))
+	mux.Handle("POST /api/updates/test-notification", s.requireSession(http.HandlerFunc(s.updatesTestNotification)))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 	})

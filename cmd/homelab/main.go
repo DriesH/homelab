@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"os"
+	// The LXC may lack time zone data, and the update schedule uses local time.
+	_ "time/tzdata"
 )
 
 var version = "dev"

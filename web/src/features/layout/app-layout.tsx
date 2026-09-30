@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { getRouteApi, Outlet, useNavigate } from '@tanstack/react-router'
+import { getRouteApi, Link, Outlet, useNavigate } from '@tanstack/react-router'
 import { LogOutIcon, MonitorIcon, MoonIcon, ServerIcon, SunIcon, UserIcon } from 'lucide-react'
 
 import { useTheme } from '@/components/theme-provider'
@@ -16,6 +16,11 @@ import {
 import { api } from '@/lib/api'
 
 const route = getRouteApi('/_app')
+
+const navigation = [
+    { to: '/', label: 'Overview' },
+    { to: '/updates', label: 'Updates' },
+] as const
 
 export function AppLayout() {
     const { session } = route.useRouteContext()
@@ -37,6 +42,19 @@ export function AppLayout() {
                         <ServerIcon className="size-4" />
                     </div>
                     <span className="font-semibold">Homelab</span>
+
+                    <nav className="ml-4 flex items-center gap-1 text-sm">
+                        {navigation.map((item) => (
+                            <Link
+                                key={item.to}
+                                to={item.to}
+                                activeOptions={{ exact: true }}
+                                className="rounded-md px-3 py-1.5 text-muted-foreground transition-colors hover:text-foreground data-[status=active]:bg-muted data-[status=active]:text-foreground"
+                            >
+                                {item.label}
+                            </Link>
+                        ))}
+                    </nav>
 
                     <DropdownMenu>
                         <DropdownMenuTrigger

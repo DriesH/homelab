@@ -14,3 +14,17 @@ export const overviewQuery = queryOptions({
     queryFn: api.overview,
     refetchInterval: 5000,
 })
+
+export const updatesQuery = queryOptions({
+    queryKey: ['updates'],
+    queryFn: api.updates,
+    // Poll fast while an update runs, so progress shows up quickly.
+    refetchInterval: (query) => (query.state.data?.busy ? 2000 : 15000),
+})
+
+export function updateRunQuery(id: string) {
+    return queryOptions({
+        queryKey: ['updates', 'runs', id],
+        queryFn: () => api.updateRun(id),
+    })
+}
