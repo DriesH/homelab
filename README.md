@@ -207,13 +207,17 @@ Before you start:
 3. Create a ProtonVPN WireGuard key with "NAT-PMP (Port Forwarding)" on.
 4. Optional: create a Jellyfin API key (Dashboard > API Keys).
 
-Then run `stacks/arr/install.sh` from the bundle as root on the Proxmox host. The installer:
+Then install it on the Apps page. The host agent runs the installer from the release bundle, in its own container, and the page shows the log. If the install fails, it removes the container it made, so you can try again. Telegram tells you when it is done.
+
+You can also run `stacks/arr/install.sh` from the bundle as root on the Proxmox host. It asks the same questions. The installer:
 
 - mounts the NAS share on the host and shares it with the new LXC and with Jellyfin as `/data/media`;
 - keeps downloads on a local disk (`/data/downloads`);
 - connects all apps: logins, root folders, qBittorrent, Prowlarr sync, FlareSolverr, subtitles and Jellyfin libraries.
 
-After the install, finish the Seerr setup and add your indexers in Prowlarr.
+After the install, the Apps page shows links to each app. Finish the Seerr setup first, then add your indexers in Prowlarr.
+
+The agent checks every answer before it writes them to a file that only root can read. The installer deletes that file when it has read it.
 
 ## Development
 
