@@ -56,10 +56,11 @@ The installers only run on a Proxmox host. Test them in a nested Proxmox VM on y
    go run ./cmd/homelab-release keygen -public internal/release/signing.pub | gh secret set HOMELAB_SIGNING_KEY
    ```
 
-2. Tag a version and push the tag. GitHub Actions builds, tests, signs and publishes the release.
+2. Set the new version in the install command of `README.md`, and merge that to `main`.
+3. Tag the version and push the tag. GitHub Actions builds, tests, signs and publishes the release.
 
    ```sh
-   git tag v0.3.0 && git push origin v0.3.0
+   git tag -a v0.6.0 -m v0.6.0 && git push origin v0.6.0
    ```
 
 A build without the key in `signing.pub` can't install updates. If you lose the private key, make a new one and install the next version by hand once.
