@@ -289,12 +289,21 @@ export type DockerLogs = {
     entries: LogEntry[]
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+export type SettingsChange = {
+    section: 'selfUpdate' | 'notifications' | 'updates' | 'health' | 'backups' | 'tailscale' | 'jellyfin'
+    status: 'unchanged' | 'changed' | 'applied' | 'skipped' | 'failed'
+    message?: string
+}
+
+export type SettingsImport = { applied: boolean; changes: SettingsChange[] }
+
+// A string body is sent as it is, for example YAML. Anything else is sent as JSON.
+async function request<T>(method: string, path: string, body?: unknown, contentType = 'application/json'): Promise<T> {
     const response = await fetch(`/api${path}`, {
         method,
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'X-Homelab-Request': '1' },
-        body: body === undefined ? undefined : JSON.stringify(body),
+        headers: { 'Content-Type': contentType, 'X-Homelab-Request': '1' },
+        body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body),
     })
 
     if (response.status === 204) {
@@ -353,6 +362,9 @@ export const api = {
     logoutTailscale: () => request<void>('POST', '/tailscale/logout'),
     setTailscaleServe: (enabled: boolean) => request<void>('PUT', '/tailscale/serve', { enabled }),
     saveTailscaleSettings: (settings: TailscaleSettings) => request<void>('PUT', '/tailscale/settings', settings),
+    settingsExportUrl: '/api/settings/export',
+    importSettings: (yaml: string, apply: boolean) =>
+        request<SettingsImport>('POST', `/settings/import${apply ? '?apply=1' : ''}`, yaml, 'application/yaml'),
     health: () => request<Health>('GET', '/health'),
     refreshHealth: () => request<Health>('POST', '/health/refresh'),
     addCheck: (input: CheckInput) => request<ServiceCheck>('POST', '/health/checks', input),

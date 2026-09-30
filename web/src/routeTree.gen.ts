@@ -16,6 +16,7 @@ import { Route as AppBackupsRouteImport } from './routes/_app/backups'
 import { Route as AppHealthRouteImport } from './routes/_app/health'
 import { Route as AppJellyfinRouteImport } from './routes/_app/jellyfin'
 import { Route as AppLogsRouteImport } from './routes/_app/logs'
+import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppTailscaleRouteImport } from './routes/_app/tailscale'
 import { Route as AppUpdatesRouteImport } from './routes/_app/updates'
 import { Route as AppConsoleVmidRouteImport } from './routes/_app/console/$vmid'
@@ -54,6 +55,11 @@ const AppLogsRoute = AppLogsRouteImport.update({
   path: '/logs',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppTailscaleRoute = AppTailscaleRouteImport.update({
   id: '/tailscale',
   path: '/tailscale',
@@ -77,6 +83,7 @@ export interface FileRoutesByFullPath {
   '/health': typeof AppHealthRoute
   '/jellyfin': typeof AppJellyfinRoute
   '/logs': typeof AppLogsRoute
+  '/settings': typeof AppSettingsRoute
   '/tailscale': typeof AppTailscaleRoute
   '/updates': typeof AppUpdatesRoute
   '/console/$vmid': typeof AppConsoleVmidRoute
@@ -87,6 +94,7 @@ export interface FileRoutesByTo {
   '/health': typeof AppHealthRoute
   '/jellyfin': typeof AppJellyfinRoute
   '/logs': typeof AppLogsRoute
+  '/settings': typeof AppSettingsRoute
   '/tailscale': typeof AppTailscaleRoute
   '/updates': typeof AppUpdatesRoute
   '/': typeof AppIndexRoute
@@ -100,6 +108,7 @@ export interface FileRoutesById {
   '/_app/health': typeof AppHealthRoute
   '/_app/jellyfin': typeof AppJellyfinRoute
   '/_app/logs': typeof AppLogsRoute
+  '/_app/settings': typeof AppSettingsRoute
   '/_app/tailscale': typeof AppTailscaleRoute
   '/_app/updates': typeof AppUpdatesRoute
   '/_app/': typeof AppIndexRoute
@@ -114,6 +123,7 @@ export interface FileRouteTypes {
     | '/health'
     | '/jellyfin'
     | '/logs'
+    | '/settings'
     | '/tailscale'
     | '/updates'
     | '/console/$vmid'
@@ -124,6 +134,7 @@ export interface FileRouteTypes {
     | '/health'
     | '/jellyfin'
     | '/logs'
+    | '/settings'
     | '/tailscale'
     | '/updates'
     | '/'
@@ -136,6 +147,7 @@ export interface FileRouteTypes {
     | '/_app/health'
     | '/_app/jellyfin'
     | '/_app/logs'
+    | '/_app/settings'
     | '/_app/tailscale'
     | '/_app/updates'
     | '/_app/'
@@ -198,6 +210,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppLogsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/tailscale': {
       id: '/_app/tailscale'
       path: '/tailscale'
@@ -227,6 +246,7 @@ interface AppRouteChildren {
   AppHealthRoute: typeof AppHealthRoute
   AppJellyfinRoute: typeof AppJellyfinRoute
   AppLogsRoute: typeof AppLogsRoute
+  AppSettingsRoute: typeof AppSettingsRoute
   AppTailscaleRoute: typeof AppTailscaleRoute
   AppUpdatesRoute: typeof AppUpdatesRoute
   AppIndexRoute: typeof AppIndexRoute
@@ -238,6 +258,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppHealthRoute: AppHealthRoute,
   AppJellyfinRoute: AppJellyfinRoute,
   AppLogsRoute: AppLogsRoute,
+  AppSettingsRoute: AppSettingsRoute,
   AppTailscaleRoute: AppTailscaleRoute,
   AppUpdatesRoute: AppUpdatesRoute,
   AppIndexRoute: AppIndexRoute,

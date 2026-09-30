@@ -7,6 +7,7 @@ import {
     MonitorIcon,
     MoonIcon,
     ServerIcon,
+    SettingsIcon,
     SunIcon,
     UserIcon,
 } from 'lucide-react'
@@ -144,6 +145,9 @@ export function AppLayout() {
                                     </DropdownMenuLabel>
                                 </DropdownMenuGroup>
                             )}
+                            <DropdownMenuItem render={<Link to="/settings" />}>
+                                <SettingsIcon /> Settings
+                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={logout}>
                                 <LogOutIcon /> Sign out
                             </DropdownMenuItem>
