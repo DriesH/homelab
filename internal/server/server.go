@@ -30,6 +30,14 @@ type Proxmox interface {
 	Resources(ctx context.Context) ([]proxmox.Resource, error)
 	NodeStatus(ctx context.Context, node string) (proxmox.NodeStatus, error)
 	RunGuestAction(ctx context.Context, node string, guestType proxmox.GuestType, vmid int, action proxmox.GuestAction) (string, error)
+	Tasks(ctx context.Context, node string, limit int) ([]proxmox.Task, error)
+	TaskLog(ctx context.Context, node, upid string, limit int) ([]string, error)
+}
+
+// Logs reads journals and Docker logs through the host agent.
+type Logs interface {
+	Journal(ctx context.Context, query agent.JournalQuery) ([]agent.LogEntry, error)
+	DockerLogs(ctx context.Context, vmid, lines int) (agent.DockerLogs, error)
 }
 
 type Agent interface {
@@ -95,6 +103,7 @@ type Options struct {
 	SelfUpdate SelfUpdate
 	Tailscale  Tailscale
 	Backups    Backups
+	Logs       Logs
 	// Background is the context for work that outlives a request, like updates.
 	Background context.Context
 	Web        fs.FS
@@ -146,6 +155,10 @@ func New(options Options) http.Handler {
 	mux.Handle("POST /api/backups/guests/{vmid}", s.requireSession(http.HandlerFunc(s.backupsBackUp)))
 	mux.Handle("POST /api/backups/restore", s.requireSession(http.HandlerFunc(s.backupsRestore)))
 	mux.Handle("POST /api/backups/delete", s.requireSession(http.HandlerFunc(s.backupsDelete)))
+	mux.Handle("GET /api/logs/journal", s.requireSession(http.HandlerFunc(s.logsJournal)))
+	mux.Handle("GET /api/logs/docker", s.requireSession(http.HandlerFunc(s.logsDocker)))
+	mux.Handle("GET /api/logs/tasks", s.requireSession(http.HandlerFunc(s.logsTasks)))
+	mux.Handle("GET /api/logs/tasks/{node}/log", s.requireSession(http.HandlerFunc(s.logsTaskLog)))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 	})

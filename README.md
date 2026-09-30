@@ -52,6 +52,19 @@ The Backups page makes a normal Proxmox backup job (`homelab-backup`), so it als
 
 The host agent creates the job with checked settings, so the API token needs no `Sys.Modify`. The token only has `VM.Backup` and `Datastore.AllocateSpace` for backups.
 
+## Logs
+
+The Logs page shows:
+
+- **Host**: the journal of the Proxmox host;
+- **Container**: the journal inside a container;
+- **Docker**: the logs of the Docker apps in a container, like Radarr and qBittorrent;
+- **Tasks**: the Proxmox tasks, like backups and snapshots. Click a task to see its log.
+
+Filter by level, by source and by text. Turn on "Follow" to refresh every 5 seconds. Docker has no log levels, so Homelab guesses them from words like `ERROR` and `[Warn]`.
+
+The host agent reads the journals and Docker logs with fixed, read-only commands.
+
 ## Tailscale
 
 The installer puts Tailscale in the manager container. Connect it on the Tailscale page, with your Tailscale account or an auth key.

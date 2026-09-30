@@ -122,6 +122,33 @@ func (c *Client) BackupTasks(ctx context.Context, node string, limit int) ([]Tas
 	return tasks, err
 }
 
+// Tasks returns the last finished tasks of all types on a node, newest first.
+func (c *Client) Tasks(ctx context.Context, node string, limit int) ([]Task, error) {
+	var tasks []Task
+	err := c.get(ctx, fmt.Sprintf("/nodes/%s/tasks?source=archive&limit=%d", url.PathEscape(node), limit), &tasks)
+
+	return tasks, err
+}
+
+// TaskLog returns the log lines of a task.
+func (c *Client) TaskLog(ctx context.Context, node, upid string, limit int) ([]string, error) {
+	var lines []struct {
+		N int    `json:"n"`
+		T string `json:"t"`
+	}
+	path := fmt.Sprintf("/nodes/%s/tasks/%s/log?limit=%d", url.PathEscape(node), url.PathEscape(upid), limit)
+	if err := c.get(ctx, path, &lines); err != nil {
+		return nil, err
+	}
+
+	text := make([]string, 0, len(lines))
+	for _, line := range lines {
+		text = append(text, line.T)
+	}
+
+	return text, nil
+}
+
 // BackupGuest starts a snapshot backup of one guest and returns the task ID.
 func (c *Client) BackupGuest(ctx context.Context, node string, vmid int, storage string) (string, error) {
 	var upid string

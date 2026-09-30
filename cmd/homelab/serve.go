@@ -140,6 +140,7 @@ func serve() error {
 		SelfUpdate:    selfUpdateService,
 		Tailscale:     tailscaleService,
 		Backups:       backupService,
+		Logs:          agentClient,
 		Background:    ctx,
 		Web:           webFS,
 		SecureCookies: !cfg.Dev,

@@ -48,6 +48,17 @@ func (f *fakeProxmox) RunGuestAction(_ context.Context, node string, guestType p
 	return "UPID:1", nil
 }
 
+func (f *fakeProxmox) Tasks(context.Context, string, int) ([]proxmox.Task, error) {
+	return []proxmox.Task{
+		{UPID: "UPID:pve:1", Type: "vzdump", ID: "101", User: "root@pam", Status: "job errors", StartTime: 100, EndTime: 200},
+		{UPID: "UPID:pve:2", Type: "vzsnapshot", ID: "101", User: "homelab@pve!manager", Status: "OK", StartTime: 50, EndTime: 60},
+	}, nil
+}
+
+func (f *fakeProxmox) TaskLog(_ context.Context, _, upid string, _ int) ([]string, error) {
+	return []string{"log of " + upid}, nil
+}
+
 type offlineAgent struct{}
 
 func (offlineAgent) Health(context.Context) (agent.Health, error) {
@@ -333,5 +344,26 @@ func TestHealthCheckEndpoints(t *testing.T) {
 	}
 	if len(fake.added) != 1 || fake.added[0].Target != "http://10.0.0.5:8096" {
 		t.Errorf("unexpected checks: %+v", fake.added)
+	}
+}
+
+func TestTaskLogs(t *testing.T) {
+	server, _ := newTestServer(t)
+	cookie := login(t, server)
+
+	response := request(t, http.MethodGet, server.URL+"/api/logs/tasks", "", cookie)
+	body, _ := io.ReadAll(response.Body)
+	text := string(body)
+	if response.StatusCode != http.StatusOK || strings.Index(text, "vzsnapshot") > strings.Index(text, "vzdump") || !strings.Contains(text, `"level":3`) {
+		t.Fatalf("tasks = %s %s", response.Status, text)
+	}
+
+	for _, path := range []string{"/api/logs/tasks/pve/log?upid=nope", "/api/logs/tasks/pve;rm/log?upid=UPID:pve:1"} {
+		if response := request(t, http.MethodGet, server.URL+path, "", cookie); response.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s: expected 400, got %s", path, response.Status)
+		}
+	}
+	if response := request(t, http.MethodGet, server.URL+"/api/logs/tasks/pve/log?upid=UPID:pve:1", "", cookie); response.StatusCode != http.StatusOK {
+		t.Errorf("task log: expected 200, got %s", response.Status)
 	}
 }
