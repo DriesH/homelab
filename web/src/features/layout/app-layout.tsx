@@ -34,6 +34,7 @@ const navigation = [
     { to: '/health', label: 'Health' },
     { to: '/updates', label: 'Updates' },
     { to: '/backups', label: 'Backups' },
+    { to: '/logs', label: 'Logs' },
     { to: '/jellyfin', label: 'Jellyfin' },
     { to: '/tailscale', label: 'Tailscale' },
 ] as const
@@ -63,14 +64,14 @@ export function AppLayout() {
                     </div>
                     <span className="hidden font-semibold sm:inline">Homelab</span>
                     {selfUpdate && (
-                        <span className="hidden font-mono text-xs text-muted-foreground lg:inline">
+                        <span className="hidden font-mono text-xs text-muted-foreground xl:inline">
                             {selfUpdate.version}
                         </span>
                     )}
 
                     {/* Phones get a menu, because all pages don't fit in one row. */}
                     <DropdownMenu>
-                        <DropdownMenuTrigger render={<Button variant="ghost" size="sm" className="md:hidden" />}>
+                        <DropdownMenuTrigger render={<Button variant="ghost" size="sm" className="lg:hidden" />}>
                             <MenuIcon />
                             {currentPage}
                         </DropdownMenuTrigger>
@@ -83,7 +84,7 @@ export function AppLayout() {
                         </DropdownMenuContent>
                     </DropdownMenu>
 
-                    <nav className="ml-4 hidden min-w-0 items-center gap-1 text-sm md:flex">
+                    <nav className="ml-4 hidden min-w-0 items-center gap-1 text-sm lg:flex">
                         {navigation.map((item) => (
                             <Link
                                 key={item.to}

@@ -280,6 +280,15 @@ export type Backups = {
     history: BackupRun[]
 }
 
+export type LogEntry = { time: string; level: number; source: string; message: string }
+
+export type TaskEntry = LogEntry & { node: string; upid: string }
+
+export type DockerLogs = {
+    containers: { name: string; state: string; image: string }[]
+    entries: LogEntry[]
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const response = await fetch(`/api${path}`, {
         method,
@@ -329,6 +338,16 @@ export const api = {
     backUpGuest: (vmid: number) => request<void>('POST', `/backups/guests/${vmid}`),
     restoreBackup: (vmid: number, volid: string) => request<void>('POST', '/backups/restore', { vmid, volid }),
     deleteBackup: (volid: string) => request<void>('POST', '/backups/delete', { volid }),
+    journal: (vmid: number, priority: number, lines = 500) =>
+        request<LogEntry[]>(
+            'GET',
+            `/logs/journal?${new URLSearchParams({ vmid: String(vmid), priority: String(priority), lines: String(lines) })}`,
+        ),
+    dockerLogs: (vmid: number, lines = 200) =>
+        request<DockerLogs>('GET', `/logs/docker?${new URLSearchParams({ vmid: String(vmid), lines: String(lines) })}`),
+    tasks: () => request<TaskEntry[]>('GET', '/logs/tasks'),
+    taskLog: (node: string, upid: string) =>
+        request<{ lines: string[] }>('GET', `/logs/tasks/${node}/log?${new URLSearchParams({ upid })}`),
     tailscale: () => request<Tailscale>('GET', '/tailscale'),
     connectTailscale: (authKey: string) => request<void>('POST', '/tailscale/connect', { authKey }),
     logoutTailscale: () => request<void>('POST', '/tailscale/logout'),
