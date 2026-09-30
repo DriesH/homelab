@@ -19,7 +19,9 @@ AGENT_SOCKET_DIR="/var/lib/homelab-agent/socket"
 
 PVE_USER="homelab@pve"
 PVE_ROLE="HomelabManager"
-PVE_PRIVS="Sys.Audit,VM.Audit,VM.PowerMgmt,VM.Snapshot,VM.Snapshot.Rollback,Datastore.Audit"
+# VM.Backup and Datastore.AllocateSpace are for backups and restores. The backup
+# schedule itself is set by the host agent, so the token needs no Sys.Modify.
+PVE_PRIVS="Sys.Audit,VM.Audit,VM.PowerMgmt,VM.Snapshot,VM.Snapshot.Rollback,VM.Backup,Datastore.Audit,Datastore.AllocateSpace"
 PVE_TOKEN="manager"
 
 UPGRADE_DIR="/var/lib/homelab-agent/upgrade"
@@ -63,13 +65,18 @@ install_agent() {
     systemctl enable --now homelab-agent
 }
 
-create_api_token() {
-    log "Creating Proxmox API user $PVE_USER"
+# update_role gives the manager's role the privileges of this version.
+update_role() {
     if pvesh get "/access/roles/$PVE_ROLE" >/dev/null 2>&1; then
         pvesh set "/access/roles/$PVE_ROLE" --privs "$PVE_PRIVS"
     else
         pvesh create /access/roles --roleid "$PVE_ROLE" --privs "$PVE_PRIVS"
     fi
+}
+
+create_api_token() {
+    log "Creating Proxmox API user $PVE_USER"
+    update_role
 
     if ! pvesh get "/access/users/$PVE_USER" >/dev/null 2>&1; then
         pvesh create /access/users --userid "$PVE_USER" --comment "Homelab manager"
@@ -248,6 +255,9 @@ upgrade() {
     sed "s/--socket-gid $HOST_SOCKET_GID/--socket-gid @SOCKET_GID@/" /etc/systemd/system/homelab-agent.service >"$UPGRADE_BACKUP/homelab-agent.service"
     pct pull "$CT_ID" /usr/local/bin/homelab "$UPGRADE_BACKUP/homelab"
     pct pull "$CT_ID" /etc/systemd/system/homelab.service "$UPGRADE_BACKUP/homelab.service"
+
+    log "Updating the privileges of the API token"
+    update_role
 
     # Older installs have no Tailscale yet. Without it, only the Tailscale page doesn't work.
     ensure_tailscale || log "Could not install Tailscale, continuing without it"
