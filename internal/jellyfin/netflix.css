@@ -1,0 +1,168 @@
+/* Netflix-style theme for the Jellyfin 12 web client (Modern layout).
+   Jellyfin 12 themes are built on --jf-palette-* variables, so most of the
+   look comes from overriding those. html[data-theme] beats [data-theme="dark"]. */
+
+html[data-theme] {
+    --nf-red: #e50914;
+    --nf-red-dark: #b20710;
+    --nf-black: #141414;
+    --nf-surface: #181818;
+    --nf-gray: #b3b3b3;
+    --nf-font: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+
+    --jf-palette-primary-main: var(--nf-red);
+    --jf-palette-primary-light: #f6121d;
+    --jf-palette-primary-dark: var(--nf-red-dark);
+    --jf-palette-primary-contrastText: #fff;
+    --jf-palette-primary-mainChannel: 229 9 20;
+    --jf-palette-secondary-main: var(--nf-red);
+    --jf-palette-secondary-contrastText: #fff;
+    --jf-palette-background-default: var(--nf-black);
+    --jf-palette-background-paper: var(--nf-surface);
+    --jf-palette-AppBar-defaultBg: transparent;
+    --jf-palette-text-secondary: var(--nf-gray);
+    --jf-palette-LinearProgress-primaryBg: rgba(255, 255, 255, 0.25);
+    --jf-palette-Slider-primaryTrack: rgba(255, 255, 255, 0.25);
+    --jf-shape-borderRadius: 4px;
+}
+
+html[data-theme],
+html[data-theme] body,
+html[data-theme] .backgroundContainer {
+    background-color: var(--nf-black);
+}
+
+html[data-theme] body {
+    font-family: var(--nf-font);
+}
+
+/* Header: dark fade at the top instead of a solid bar. */
+html[data-theme] .skinHeader,
+html[data-theme] .skinHeader-withBackground,
+html[data-theme] .MuiAppBar-root {
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.85) 10%, transparent) !important;
+    backdrop-filter: none !important;
+    box-shadow: none !important;
+}
+
+/* Row titles */
+html[data-theme] .sectionTitle {
+    font-family: var(--nf-font);
+    font-weight: 700;
+    font-size: 1.35rem;
+    color: #e5e5e5;
+}
+
+/* Posters: sharp, and they grow on hover like Netflix tiles. */
+html[data-theme] .cardBox,
+html[data-theme] .cardImageContainer,
+html[data-theme] .cardScalable {
+    border-radius: 4px;
+}
+
+html[data-theme] .cardBox {
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] .card-hoverable .cardScalable {
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+html[data-theme] .card-hoverable:hover .cardScalable {
+    transform: scale(1.06);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.8);
+    z-index: 2;
+}
+
+html[data-theme] .cardText {
+    color: var(--nf-gray);
+    font-size: 0.85rem;
+}
+
+html[data-theme] .cardText-first {
+    color: #e5e5e5;
+}
+
+/* Watched progress and counters in Netflix red. */
+html[data-theme] .itemProgressBarForeground,
+html[data-theme] .playbackProgress,
+html[data-theme] .countIndicator,
+html[data-theme] .playedIndicator {
+    background-color: var(--nf-red) !important;
+}
+
+/* Details page: big backdrop that fades into the page. Wide desktop windows only:
+   on phones and narrow windows Jellyfin stacks the page, and these rules would overlap. */
+@media (min-width: 62.5em) {
+    html.layout-desktop[data-theme] .itemBackdrop {
+        height: 70vh;
+        -webkit-mask-image: linear-gradient(to bottom, #000 45%, transparent 100%);
+        mask-image: linear-gradient(to bottom, #000 45%, transparent 100%);
+    }
+
+    /* The content under the backdrop has its own background, which would cut the fade off. */
+    html[data-theme] .detailRibbon,
+    html[data-theme] .detailPageWrapperContainer {
+        background: transparent !important;
+    }
+
+    html.layout-desktop[data-theme] .detailPagePrimaryContainer {
+        margin-top: -30vh;
+        position: relative;
+    }
+
+    html[data-theme] .itemName {
+        font-family: var(--nf-font);
+        font-weight: 700;
+    }
+
+    /* Play is a white button, the other actions are round outlines. */
+    html.layout-desktop[data-theme] .mainDetailButtons .detailButton {
+        border: 2px solid rgba(255, 255, 255, 0.5);
+        border-radius: 50%;
+        background: rgba(42, 42, 42, 0.6);
+        transition: border-color 0.2s ease;
+    }
+
+    html.layout-desktop[data-theme] .mainDetailButtons .detailButton:hover {
+        border-color: #fff;
+    }
+
+    html.layout-desktop[data-theme] .mainDetailButtons .btnPlay {
+        border: 0;
+        border-radius: 4px;
+        background: #fff;
+        color: #000;
+        padding-inline: 1.4em;
+    }
+
+    html.layout-desktop[data-theme] .mainDetailButtons .btnPlay:hover {
+        background: rgba(255, 255, 255, 0.75);
+    }
+}
+
+/* Main buttons in dialogs and forms */
+html[data-theme] .button-submit {
+    background-color: var(--nf-red);
+    color: #fff;
+}
+
+html[data-theme] .button-submit:hover {
+    background-color: var(--nf-red-dark);
+}
+
+/* Thin dark scrollbars */
+html[data-theme] ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+html[data-theme] ::-webkit-scrollbar-thumb {
+    background: #3a3a3a;
+    border-radius: 4px;
+}
+
+html[data-theme] ::-webkit-scrollbar-track {
+    background: transparent;
+}
