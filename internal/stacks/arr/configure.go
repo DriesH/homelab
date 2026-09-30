@@ -47,6 +47,9 @@ type Config struct {
 	JellyfinURL         string
 	JellyfinInternalURL string
 	JellyfinAPIKey      string
+	// Optional. With a Jellyfin admin, this tool also does the setup of Seerr.
+	JellyfinAdminUsername string
+	JellyfinAdminPassword string
 
 	SubtitleLanguages []string
 
@@ -72,6 +75,7 @@ type Endpoints struct {
 	Prowlarr    string
 	QBittorrent string
 	Bazarr      string
+	Seerr       string
 }
 
 var DefaultEndpoints = Endpoints{
@@ -80,6 +84,7 @@ var DefaultEndpoints = Endpoints{
 	Prowlarr:    "http://localhost:9696",
 	QBittorrent: "http://localhost:8080",
 	Bazarr:      "http://localhost:6767",
+	Seerr:       "http://localhost:5055",
 }
 
 func Configure(ctx context.Context, cfg Config) error {
@@ -135,6 +140,22 @@ func Configure(ctx context.Context, cfg Config) error {
 		cfg.Logf("Configuring %s", step.name)
 		if err := step.run(ctx); err != nil {
 			return fmt.Errorf("%s: %w", step.name, err)
+		}
+	}
+
+	// Seerr is last and optional: without it, the stack works, and you can
+	// still do its setup in the browser.
+	if cfg.JellyfinURL != "" && cfg.JellyfinAdminUsername != "" {
+		cfg.Logf("Configuring Seerr")
+		seerr := newSeerr(cfg.Endpoints.Seerr, 30*time.Second)
+		err := waitFor(ctx, func(ctx context.Context) error {
+			return seerr.do(ctx, http.MethodGet, "/settings/public", nil, nil)
+		})
+		if err == nil {
+			err = configureSeerr(ctx, cfg, seerr)
+		}
+		if err != nil {
+			cfg.Logf("Could not set up Seerr, finish its setup in the browser: %v", err)
 		}
 	}
 
