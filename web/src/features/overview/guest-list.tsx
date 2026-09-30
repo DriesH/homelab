@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { EllipsisVerticalIcon, PlayIcon, PowerIcon, RotateCwIcon, SquareIcon } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { EllipsisVerticalIcon, PlayIcon, PowerIcon, RotateCwIcon, SquareIcon, TerminalIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
@@ -112,6 +113,16 @@ function GuestRow({ guest }: { guest: Guest }) {
                 <DropdownMenuContent align="end" className="w-40">
                     {running ? (
                         <>
+                            {guest.type === 'lxc' && (
+                                <>
+                                    <DropdownMenuItem
+                                        render={<Link to="/console/$vmid" params={{ vmid: String(guest.vmid) }} />}
+                                    >
+                                        <TerminalIcon /> Console
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                </>
+                            )}
                             <DropdownMenuItem onClick={() => action.mutate('reboot')}>
                                 <RotateCwIcon /> Reboot
                             </DropdownMenuItem>

@@ -18,6 +18,7 @@ import { Route as AppJellyfinRouteImport } from './routes/_app/jellyfin'
 import { Route as AppLogsRouteImport } from './routes/_app/logs'
 import { Route as AppTailscaleRouteImport } from './routes/_app/tailscale'
 import { Route as AppUpdatesRouteImport } from './routes/_app/updates'
+import { Route as AppConsoleVmidRouteImport } from './routes/_app/console/$vmid'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -63,6 +64,11 @@ const AppUpdatesRoute = AppUpdatesRouteImport.update({
   path: '/updates',
   getParentRoute: () => AppRoute,
 } as any)
+const AppConsoleVmidRoute = AppConsoleVmidRouteImport.update({
+  id: '/console/$vmid',
+  path: '/console/$vmid',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -73,6 +79,7 @@ export interface FileRoutesByFullPath {
   '/logs': typeof AppLogsRoute
   '/tailscale': typeof AppTailscaleRoute
   '/updates': typeof AppUpdatesRoute
+  '/console/$vmid': typeof AppConsoleVmidRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
@@ -83,6 +90,7 @@ export interface FileRoutesByTo {
   '/tailscale': typeof AppTailscaleRoute
   '/updates': typeof AppUpdatesRoute
   '/': typeof AppIndexRoute
+  '/console/$vmid': typeof AppConsoleVmidRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -95,6 +103,7 @@ export interface FileRoutesById {
   '/_app/tailscale': typeof AppTailscaleRoute
   '/_app/updates': typeof AppUpdatesRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/console/$vmid': typeof AppConsoleVmidRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -107,6 +116,7 @@ export interface FileRouteTypes {
     | '/logs'
     | '/tailscale'
     | '/updates'
+    | '/console/$vmid'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
@@ -117,6 +127,7 @@ export interface FileRouteTypes {
     | '/tailscale'
     | '/updates'
     | '/'
+    | '/console/$vmid'
   id:
     | '__root__'
     | '/_app'
@@ -128,6 +139,7 @@ export interface FileRouteTypes {
     | '/_app/tailscale'
     | '/_app/updates'
     | '/_app/'
+    | '/_app/console/$vmid'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -200,6 +212,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppUpdatesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/console/$vmid': {
+      id: '/_app/console/$vmid'
+      path: '/console/$vmid'
+      fullPath: '/console/$vmid'
+      preLoaderRoute: typeof AppConsoleVmidRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -211,6 +230,7 @@ interface AppRouteChildren {
   AppTailscaleRoute: typeof AppTailscaleRoute
   AppUpdatesRoute: typeof AppUpdatesRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppConsoleVmidRoute: typeof AppConsoleVmidRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -221,6 +241,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppTailscaleRoute: AppTailscaleRoute,
   AppUpdatesRoute: AppUpdatesRoute,
   AppIndexRoute: AppIndexRoute,
+  AppConsoleVmidRoute: AppConsoleVmidRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
