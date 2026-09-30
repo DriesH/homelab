@@ -7,7 +7,7 @@ import '@xterm/xterm/css/xterm.css'
 import { ArrowLeftIcon, RotateCwIcon } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { overviewQuery } from '@/lib/queries'
 
 const route = getRouteApi('/_app/console/$vmid')
@@ -26,9 +26,13 @@ export function ConsolePage() {
     return (
         <div className="flex flex-col gap-4">
             <header className="flex flex-wrap items-center gap-3">
-                <Button variant="ghost" size="icon-sm" render={<Link to="/" />} aria-label="Back to the overview">
+                <Link
+                    to="/"
+                    className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
+                    aria-label="Back to the overview"
+                >
                     <ArrowLeftIcon />
-                </Button>
+                </Link>
                 <h1 className="text-lg font-semibold">{guest?.name ?? `Container ${vmid}`}</h1>
                 <Badge variant="outline" className="font-mono">
                     LXC {vmid}

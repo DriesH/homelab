@@ -3,10 +3,10 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 REPO ?= $(shell git remote get-url origin 2>/dev/null | sed -E 's,(git@github.com:|https://github.com/),,; s,\.git$$,,')
 LDFLAGS := -s -w -X main.version=$(VERSION) -X homelab/internal/selfupdate.DefaultRepo=$(REPO)
 # Listed explicitly so Go doesn't scan web/node_modules.
-GO_PKGS := ./cmd/... ./internal/... ./web
+GO_PKGS := ./cmd/... ./internal/... ./dev/... ./web
 BUNDLE := dist/homelab-$(VERSION)-linux-amd64
 
-.PHONY: web build bundle test dev-api dev-web
+.PHONY: web build bundle test dev dev-code dev-api dev-web
 
 web:
 	cd web && npm ci && npm run build
@@ -30,7 +30,15 @@ test:
 	go test $(GO_PKGS)
 	cd web && npm run lint && npm run typecheck
 
-# Needs PROXMOX_URL, PROXMOX_TOKEN_ID and PROXMOX_TOKEN_SECRET, and an admin
+# Everything on this computer, with a fake Proxmox and host agent. Open http://localhost:5173.
+dev:
+	./dev/run.sh
+
+# The login code for the dev admin.
+dev-code:
+	@go run ./dev/mock code
+
+# Against a real Proxmox. Needs PROXMOX_URL, PROXMOX_TOKEN_ID and PROXMOX_TOKEN_SECRET, and an admin
 # created with: HOMELAB_DATA_DIR=.data go run ./cmd/homelab admin
 dev-api:
 	HOMELAB_DEV=1 HOMELAB_HTTP_ADDR=127.0.0.1:8080 HOMELAB_DATA_DIR=.data go run ./cmd/homelab serve

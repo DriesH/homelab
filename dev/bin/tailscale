@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Fake tailscale CLI for `make dev`. It keeps its state in .dev/tailscale.
+# A login "succeeds" 5 seconds after `tailscale up`.
+dir="$(cd "$(dirname "$0")/../.." && pwd)/.dev/tailscale"
+mkdir -p "$dir"
+state="$(cat "$dir/state" 2>/dev/null || echo NeedsLogin)"
+
+case "$1 $2" in
+"status --json")
+    if [[ "$state" == Running ]]; then
+        routes="[]"
+        [[ -f "$dir/routes" ]] && routes="[\"$(cat "$dir/routes")\"]"
+        cat <<JSON
+{"BackendState":"Running","AuthURL":"","Health":[],
+ "Self":{"HostName":"homelab","DNSName":"homelab.tail1234.ts.net.","TailscaleIPs":["100.101.102.103"],"PrimaryRoutes":$routes},
+ "CurrentTailnet":{"Name":"you@example.com"},
+ "Peer":{"1":{"HostName":"iphone","DNSName":"iphone.tail1234.ts.net.","OS":"iOS","TailscaleIPs":["100.90.1.2"],"Online":true},
+         "2":{"HostName":"macbook","DNSName":"macbook.tail1234.ts.net.","OS":"macOS","TailscaleIPs":["100.90.1.3"],"Online":false,"LastSeen":"2026-09-29T20:00:00Z"}}}
+JSON
+    else
+        url=""
+        [[ -f "$dir/pending" ]] && url="https://login.tailscale.com/a/dev"
+        echo "{\"BackendState\":\"NeedsLogin\",\"AuthURL\":\"$url\",\"Health\":[\"You are logged out.\"]}"
+        exit 1
+    fi
+    ;;
+"up --reset")
+    rm -f "$dir/routes"
+    for arg in "$@"; do
+        [[ "$arg" == --advertise-routes=* ]] && echo "${arg#*=}" >"$dir/routes"
+    done
+    [[ "$state" == Running ]] && exit 0
+    touch "$dir/pending"
+    printf '\nTo authenticate, visit:\n\n\thttps://login.tailscale.com/a/dev\n'
+    sleep 5
+    rm -f "$dir/pending"
+    echo Running >"$dir/state"
+    echo Success.
+    ;;
+"serve status")
+    if [[ -f "$dir/serving" ]]; then echo '{"TCP":{"443":{"HTTPS":true}},"Web":{"homelab.tail1234.ts.net:443":{}}}'; else echo '{}'; fi
+    ;;
+"serve --bg")
+    touch "$dir/serving"
+    echo "Available within your tailnet: https://homelab.tail1234.ts.net/"
+    ;;
+"serve --https=443") rm -f "$dir/serving" ;;
+"logout "*)
+    echo NeedsLogin >"$dir/state"
+    rm -f "$dir/serving" "$dir/routes"
+    ;;
+*)
+    echo "fake tailscale: unknown command: $*" >&2
+    exit 1
+    ;;
+esac

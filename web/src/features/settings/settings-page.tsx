@@ -4,7 +4,7 @@ import { DownloadIcon, Loader2Icon, UploadIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import {
     Dialog,
@@ -109,10 +109,10 @@ function SettingsFileCard() {
                 them.
             </CardContent>
             <CardFooter className="flex flex-wrap gap-2">
-                <Button render={<a href={api.settingsExportUrl} download="homelab.yaml" />}>
+                <a href={api.settingsExportUrl} download="homelab.yaml" className={buttonVariants()}>
                     <DownloadIcon />
                     Download homelab.yaml
-                </Button>
+                </a>
                 <Button variant="outline" disabled={preview.isPending} onClick={() => input.current?.click()}>
                     {preview.isPending ? <Loader2Icon className="animate-spin" /> : <UploadIcon />}
                     Import a file
