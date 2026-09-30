@@ -339,7 +339,8 @@ share_media_with_jellyfin() {
 
 configure_stack() {
     log "Connecting the apps"
-    printf '%s\n' "$ARR_PASSWORD" | pct exec "$CT_ID" -- homelab-arr configure
+    # The full path, because pct sets PATH to /sbin:/bin:/usr/sbin:/usr/bin inside the container.
+    printf '%s\n' "$ARR_PASSWORD" | pct exec "$CT_ID" -- /usr/local/bin/homelab-arr configure
 }
 
 main() {
