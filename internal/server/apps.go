@@ -21,13 +21,24 @@ func (s *server) appsStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) appsInstall(w http.ResponseWriter, r *http.Request) {
-	var answers agent.MediaStackAnswers
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&answers); err != nil {
+	var request agent.InstallRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&request); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	err := s.Apps.Install(r.Context(), s.Background, r.PathValue("id"), answers)
+	s.writeAppsResult(w, s.Apps.Install(r.Context(), s.Background, r.PathValue("id"), request), http.StatusAccepted)
+}
+
+func (s *server) appsRetry(w http.ResponseWriter, r *http.Request) {
+	s.writeAppsResult(w, s.Apps.Retry(r.Context(), s.Background, r.PathValue("id")), http.StatusAccepted)
+}
+
+func (s *server) appsForget(w http.ResponseWriter, r *http.Request) {
+	s.writeAppsResult(w, s.Apps.Forget(r.Context(), r.PathValue("id")), http.StatusNoContent)
+}
+
+func (s *server) writeAppsResult(w http.ResponseWriter, err error, success int) {
 	switch {
 	case errors.Is(err, agent.ErrInvalidAnswers):
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -40,6 +51,6 @@ func (s *server) appsInstall(w http.ResponseWriter, r *http.Request) {
 		// The agent's message says what to do, like "update Homelab first".
 		writeError(w, http.StatusBadGateway, err.Error())
 	default:
-		w.WriteHeader(http.StatusAccepted)
+		w.WriteHeader(success)
 	}
 }

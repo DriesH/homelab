@@ -212,8 +212,24 @@ func (c *Client) StartUpgrade(ctx context.Context, bundle io.Reader, signature r
 	return nil
 }
 
-func (c *Client) InstallApp(ctx context.Context, app string, answers MediaStackAnswers) error {
-	return c.do(ctx, http.MethodPost, "/v1/apps/"+url.PathEscape(app)+"/install", answers, nil)
+func (c *Client) InstallApp(ctx context.Context, app string, request InstallRequest) error {
+	return c.do(ctx, http.MethodPost, "/v1/apps/"+url.PathEscape(app)+"/install", request, nil)
+}
+
+func (c *Client) RetryApp(ctx context.Context, app string) error {
+	return c.do(ctx, http.MethodPost, "/v1/apps/"+url.PathEscape(app)+"/retry", nil, nil)
+}
+
+// SavedAppAnswers returns the answers of the last failed install without secrets, or nil.
+func (c *Client) SavedAppAnswers(ctx context.Context, app string) (*SavedAnswers, error) {
+	var saved *SavedAnswers
+	err := c.do(ctx, http.MethodGet, "/v1/apps/"+url.PathEscape(app)+"/answers", nil, &saved)
+
+	return saved, err
+}
+
+func (c *Client) ForgetAppAnswers(ctx context.Context, app string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/apps/"+url.PathEscape(app)+"/answers", nil, nil)
 }
 
 func (c *Client) AppInstallStatus(ctx context.Context) (AppInstallStatus, error) {

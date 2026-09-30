@@ -24,7 +24,10 @@ var (
 )
 
 type Agent interface {
-	InstallApp(ctx context.Context, app string, answers agent.MediaStackAnswers) error
+	InstallApp(ctx context.Context, app string, request agent.InstallRequest) error
+	RetryApp(ctx context.Context, app string) error
+	SavedAppAnswers(ctx context.Context, app string) (*agent.SavedAnswers, error)
+	ForgetAppAnswers(ctx context.Context, app string) error
 	AppInstallStatus(ctx context.Context) (agent.AppInstallStatus, error)
 }
 
@@ -72,6 +75,8 @@ type AppView struct {
 	Status    string `json:"status,omitempty"`
 	// Install is the last install of this app, while it runs or when it failed.
 	Install *agent.AppInstallStatus `json:"install"`
+	// Saved are the answers of a failed install, without secrets, for a retry.
+	Saved *agent.SavedAnswers `json:"saved"`
 }
 
 type Defaults struct {
@@ -152,6 +157,11 @@ func (s *Service) Status(ctx context.Context) (View, error) {
 		}
 		if install.App == app.ID && install.State != agent.UpgradeIdle && !(appView.Installed && install.State == agent.UpgradeSucceeded) {
 			appView.Install = &install
+		}
+		if !appView.Installed && install.State != agent.UpgradeRunning {
+			if saved, err := s.Agent.SavedAppAnswers(ctx, app.ID); err == nil {
+				appView.Saved = saved
+			}
 		}
 
 		view.Apps = append(view.Apps, appView)
@@ -243,15 +253,41 @@ func (s *Service) guestIP(ctx context.Context, guest proxmox.Resource) string {
 	return ""
 }
 
-func (s *Service) Install(ctx context.Context, background context.Context, id string, answers agent.MediaStackAnswers) error {
+func (s *Service) Install(ctx context.Context, background context.Context, id string, request agent.InstallRequest) error {
+	// With KeepSecrets, the agent checks the answers after it adds the saved secrets.
+	if !request.KeepSecrets {
+		if err := request.Validate(); err != nil {
+			return err
+		}
+	}
+
+	return s.start(ctx, background, id, func(app App) error {
+		return s.Agent.InstallApp(ctx, app.ID, request)
+	})
+}
+
+// Retry runs the install again with the answers the agent saved.
+func (s *Service) Retry(ctx context.Context, background context.Context, id string) error {
+	return s.start(ctx, background, id, func(app App) error {
+		return s.Agent.RetryApp(ctx, app.ID)
+	})
+}
+
+func (s *Service) Forget(ctx context.Context, id string) error {
+	if !slices.ContainsFunc(Catalog, func(app App) bool { return app.ID == id }) {
+		return ErrUnknownApp
+	}
+
+	return s.Agent.ForgetAppAnswers(ctx, id)
+}
+
+// start checks that the app can be installed, runs install, and watches it.
+func (s *Service) start(ctx context.Context, background context.Context, id string, install func(App) error) error {
 	index := slices.IndexFunc(Catalog, func(app App) bool { return app.ID == id })
 	if index < 0 {
 		return ErrUnknownApp
 	}
 	app := Catalog[index]
-	if err := answers.Validate(); err != nil {
-		return err
-	}
 
 	resources, err := s.Proxmox.Resources(ctx)
 	if err != nil {
@@ -264,7 +300,7 @@ func (s *Service) Install(ctx context.Context, background context.Context, id st
 		return ErrBusy
 	}
 
-	if err := s.Agent.InstallApp(ctx, id, answers); err != nil {
+	if err := install(app); err != nil {
 		return err
 	}
 	s.Logger.Info("app install started", "app", id)
