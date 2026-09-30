@@ -166,11 +166,23 @@ export type Storage = {
     problem?: string
 }
 
+export type Share = {
+    path: string
+    source: string
+    fsType: string
+    mounted: boolean
+    size: number
+    used: number
+    error?: string
+    problem?: string
+}
+
 export type Health = {
     services: ServiceCheck[]
     disks: Disk[]
     pools: ZFSPool[]
     storage: Storage[]
+    shares: Share[]
     errors: string[]
     checkedAt?: string
 }

@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"homelab/internal/agent"
 	"homelab/internal/proxmox"
 )
 
@@ -36,9 +37,15 @@ type Proxmox interface {
 	ZFSPools(ctx context.Context, node string) ([]proxmox.ZFSPool, error)
 }
 
+// Agent is the host agent. It sees the network shares that are mounted on the host.
+type Agent interface {
+	Mounts(ctx context.Context) ([]agent.Mount, error)
+}
+
 type Options struct {
 	DataDir string
 	Proxmox Proxmox
+	Agent   Agent
 	// Notify sends an alert, for example to Telegram.
 	Notify func(ctx context.Context, text string)
 	Logger *slog.Logger
@@ -71,6 +78,7 @@ type View struct {
 	Disks     []DiskView    `json:"disks"`
 	Pools     []PoolView    `json:"pools"`
 	Storage   []StorageView `json:"storage"`
+	Shares    []ShareView   `json:"shares"`
 	Errors    []string      `json:"errors"`
 	CheckedAt time.Time     `json:"checkedAt,omitzero"`
 }
@@ -99,6 +107,9 @@ func New(options Options) (*Service, error) {
 	if options.Probe == nil {
 		options.Probe = probe
 	}
+	if options.Logger == nil {
+		options.Logger = slog.Default()
+	}
 	if options.Notify == nil {
 		options.Notify = func(context.Context, string) {}
 	}
@@ -108,7 +119,7 @@ func New(options Options) (*Service, error) {
 		path:     filepath.Join(options.DataDir, "health.json"),
 		checks:   []Check{},
 		services: map[string]*ServiceView{},
-		system:   system{disks: []DiskView{}, pools: []PoolView{}, storage: []StorageView{}, errors: []string{}},
+		system:   newSystem(),
 		alerts:   map[string]string{},
 	}
 
@@ -239,7 +250,7 @@ func (s *Service) CheckSystem(ctx context.Context) {
 
 	messages := []string{}
 	// When Proxmox is unreachable we know nothing, so keep the open alerts as they are.
-	if len(result.disks)+len(result.pools)+len(result.storage) > 0 {
+	if len(result.disks)+len(result.pools)+len(result.storage)+len(result.shares) > 0 {
 		problems := map[string]string{}
 		for _, disk := range result.disks {
 			problems["disk:"+disk.Node+":"+disk.DevPath] = disk.Problem
@@ -249,6 +260,9 @@ func (s *Service) CheckSystem(ctx context.Context) {
 		}
 		for _, storage := range result.storage {
 			problems["storage:"+storage.Node+":"+storage.Name] = storage.Problem
+		}
+		for _, share := range result.shares {
+			problems["share:"+share.Path+":access"], problems["share:"+share.Path+":space"] = shareProblems(share)
 		}
 
 		for key, problem := range problems {
@@ -317,6 +331,7 @@ func (s *Service) Status() View {
 		Disks:     s.system.disks,
 		Pools:     s.system.pools,
 		Storage:   s.system.storage,
+		Shares:    s.system.shares,
 		Errors:    s.system.errors,
 		CheckedAt: s.systemAt,
 	}

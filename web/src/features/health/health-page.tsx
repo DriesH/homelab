@@ -8,7 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { api, type Health } from '@/lib/api'
 import { formatRelative } from '@/lib/format'
 import { healthQuery } from '@/lib/queries'
-import { DiskList, PoolList, StorageList } from './disks'
+import { DiskList, PoolList, ShareList, StorageList } from './disks'
 import { ServiceChecks } from './service-checks'
 
 export function HealthPage() {
@@ -76,6 +76,13 @@ export function HealthPage() {
                 </section>
             )}
 
+            {data.shares.length > 0 && (
+                <section className="flex flex-col gap-3">
+                    <h2 className="text-lg font-semibold">Network shares</h2>
+                    <ShareList shares={data.shares} />
+                </section>
+            )}
+
             <section className="flex flex-col gap-3">
                 <h2 className="text-lg font-semibold">Storage</h2>
                 <StorageList storage={data.storage} />
@@ -89,7 +96,7 @@ function Problems({ health }: { health: Health }) {
         ...health.services
             .filter((service) => service.status === 'down')
             .map((service) => `${service.name} is down: ${service.error}`),
-        ...[...health.disks, ...health.pools, ...health.storage].flatMap((item) =>
+        ...[...health.disks, ...health.pools, ...health.shares, ...health.storage].flatMap((item) =>
             item.problem ? [item.problem] : [],
         ),
         ...health.errors,

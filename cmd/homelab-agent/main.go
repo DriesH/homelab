@@ -60,6 +60,7 @@ func run(socketPath string, socketGID int, logger *slog.Logger) error {
 	mux.HandleFunc("GET /v1/health", health)
 	mux.HandleFunc("POST /v1/jobs", startJob(runner, logger))
 	mux.HandleFunc("GET /v1/jobs/{id}", getJob(runner))
+	mux.HandleFunc("GET /v1/mounts", listMounts(agent.NewMounts()))
 
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 
@@ -121,6 +122,12 @@ func getJob(runner *agent.Runner) http.HandlerFunc {
 		}
 
 		writeJSON(w, http.StatusOK, job)
+	}
+}
+
+func listMounts(mounts *agent.Mounts) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, mounts.List())
 	}
 }
 

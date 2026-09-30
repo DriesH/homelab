@@ -1,7 +1,7 @@
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { UsageBar } from '@/features/overview/usage-bar'
-import type { Disk, Storage, ZFSPool } from '@/lib/api'
+import type { Disk, Share, Storage, ZFSPool } from '@/lib/api'
 import { formatBytes, percentage } from '@/lib/format'
 
 export function DiskList({ disks }: { disks: Disk[] }) {
@@ -106,5 +106,53 @@ export function StorageList({ storage }: { storage: Storage[] }) {
                 </Card>
             ))}
         </div>
+    )
+}
+
+export function ShareList({ shares }: { shares: Share[] }) {
+    return (
+        <div className="grid gap-4 sm:grid-cols-2">
+            {shares.map((share) => (
+                <Card key={share.path} className="gap-3 px-5 py-4">
+                    <div className="flex items-start gap-2">
+                        <div className="flex min-w-0 flex-col">
+                            <span className="truncate font-medium">{share.source}</span>
+                            <span className="truncate font-mono text-xs text-muted-foreground">{share.path}</span>
+                        </div>
+                        <ShareBadge share={share} />
+                    </div>
+                    {share.mounted && share.size > 0 && (
+                        <UsageBar
+                            label={share.fsType.toUpperCase()}
+                            value={percentage(share.used, share.size)}
+                            detail={`${formatBytes(share.used)} / ${formatBytes(share.size)}`}
+                        />
+                    )}
+                </Card>
+            ))}
+        </div>
+    )
+}
+
+function ShareBadge({ share }: { share: Share }) {
+    if (!share.mounted) {
+        return (
+            <Badge variant="destructive" className="ml-auto">
+                Not mounted
+            </Badge>
+        )
+    }
+    if (share.error) {
+        return (
+            <Badge variant="destructive" className="ml-auto">
+                {share.error}
+            </Badge>
+        )
+    }
+
+    return (
+        <Badge variant="secondary" className="ml-auto">
+            Mounted
+        </Badge>
     )
 }

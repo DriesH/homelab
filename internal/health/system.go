@@ -1,12 +1,14 @@
 package health
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
 
+	"homelab/internal/agent"
 	"homelab/internal/proxmox"
 )
 
@@ -52,16 +54,43 @@ type StorageView struct {
 	Problem string `json:"problem,omitempty"`
 }
 
+type ShareView struct {
+	Path    string `json:"path"`
+	Source  string `json:"source"`
+	FSType  string `json:"fsType"`
+	Mounted bool   `json:"mounted"`
+	Size    int64  `json:"size"`
+	Used    int64  `json:"used"`
+	Error   string `json:"error,omitempty"`
+	Problem string `json:"problem,omitempty"`
+}
+
 type system struct {
 	disks   []DiskView
 	pools   []PoolView
 	storage []StorageView
+	shares  []ShareView
 	// errors are per node, so one broken node doesn't hide the others.
 	errors []string
 }
 
+func newSystem() system {
+	return system{disks: []DiskView{}, pools: []PoolView{}, storage: []StorageView{}, shares: []ShareView{}, errors: []string{}}
+}
+
 func (s *Service) checkSystem(ctx context.Context) system {
-	result := system{disks: []DiskView{}, pools: []PoolView{}, storage: []StorageView{}, errors: []string{}}
+	result := newSystem()
+
+	if s.Agent != nil {
+		mounts, err := s.Agent.Mounts(ctx)
+		if err != nil {
+			s.Logger.Warn("could not list network shares", "error", err)
+			result.errors = append(result.errors, "The host agent is not reachable, so network shares were not checked")
+		}
+		for _, mount := range mounts {
+			result.shares = append(result.shares, shareView(mount))
+		}
+	}
 
 	resources, err := s.Proxmox.Resources(ctx)
 	if err != nil {
@@ -153,4 +182,33 @@ func storageView(resource proxmox.Resource) StorageView {
 	}
 
 	return view
+}
+
+func shareView(mount agent.Mount) ShareView {
+	view := ShareView{
+		Path: mount.Path, Source: mount.Source, FSType: mount.FSType,
+		Mounted: mount.Mounted, Size: mount.Size, Used: mount.Used, Error: mount.Error,
+	}
+
+	access, space := shareProblems(view)
+	view.Problem = cmp.Or(access, space)
+
+	return view
+}
+
+// shareProblems returns two problems, so that a share that comes back full
+// still sends a new alert.
+func shareProblems(share ShareView) (access, space string) {
+	switch {
+	case !share.Mounted:
+		access = fmt.Sprintf("Share %s is not mounted at %s", share.Source, share.Path)
+	case share.Error != "":
+		access = fmt.Sprintf("Share %s at %s: %s", share.Source, share.Path, share.Error)
+	}
+
+	if share.Size > 0 && float64(share.Used)/float64(share.Size) >= storageLimit {
+		space = fmt.Sprintf("Share %s is %d%% full", share.Source, share.Used*100/share.Size)
+	}
+
+	return access, space
 }

@@ -77,6 +77,7 @@ func serve() error {
 	healthService, err := health.New(health.Options{
 		DataDir: cfg.DataDir,
 		Proxmox: pve,
+		Agent:   agentClient,
 		Notify:  updateService.Notify,
 		Logger:  logger,
 	})

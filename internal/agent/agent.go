@@ -109,6 +109,13 @@ func (c *Client) Job(ctx context.Context, id string) (Job, error) {
 	return job, err
 }
 
+func (c *Client) Mounts(ctx context.Context) ([]Mount, error) {
+	var mounts []Mount
+	err := c.do(ctx, http.MethodGet, "/v1/mounts", nil, &mounts)
+
+	return mounts, err
+}
+
 // RunJob starts a job and waits until it finishes.
 func (c *Client) RunJob(ctx context.Context, request JobRequest) (Job, error) {
 	job, err := c.StartJob(ctx, request)

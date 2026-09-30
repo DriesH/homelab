@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"homelab/internal/agent"
 	"homelab/internal/proxmox"
 )
 
@@ -34,9 +35,19 @@ func (f *fakeProxmox) ZFSPools(context.Context, string) ([]proxmox.ZFSPool, erro
 	return f.pools, nil
 }
 
+type fakeAgent struct {
+	mounts []agent.Mount
+	err    error
+}
+
+func (f *fakeAgent) Mounts(context.Context) ([]agent.Mount, error) {
+	return f.mounts, f.err
+}
+
 type harness struct {
 	service  *Service
 	pve      *fakeProxmox
+	agent    *fakeAgent
 	messages []string
 	failing  map[string]bool
 }
@@ -49,12 +60,14 @@ func newHarness(t *testing.T) *harness {
 			{Type: "node", Node: "pve", Status: "online"},
 			{Type: "storage", Node: "pve", Storage: "local", Status: "available", Disk: 10, MaxDisk: 100},
 		}},
+		agent:   &fakeAgent{},
 		failing: map[string]bool{},
 	}
 
 	service, err := New(Options{
 		DataDir: t.TempDir(),
 		Proxmox: h.pve,
+		Agent:   h.agent,
 		Notify:  func(_ context.Context, text string) { h.messages = append(h.messages, text) },
 		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Probe: func(_ context.Context, check Check) error {
@@ -222,5 +235,40 @@ func TestProbe(t *testing.T) {
 	listener.Close()
 	if err := probe(ctx, Check{Kind: TCPCheck, Target: closed}); err == nil || err.Error() != "connection refused" {
 		t.Errorf("tcp to a closed port: err = %v, want connection refused", err)
+	}
+}
+
+func TestShareAlerts(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	media := agent.Mount{Path: "/mnt/homelab/media", Source: "nas:/volume1/media", FSType: "nfs", Mounted: true, Size: 100, Used: 50}
+	h.agent.mounts = []agent.Mount{media}
+
+	h.service.CheckSystem(ctx)
+	if len(h.messages) != 0 || len(h.service.Status().Shares) != 1 {
+		t.Fatalf("messages = %v, shares = %+v", h.messages, h.service.Status().Shares)
+	}
+
+	h.agent.mounts[0].Mounted = false
+	h.service.CheckSystem(ctx)
+	if len(h.messages) != 1 || h.messages[0] != "⚠️ Share nas:/volume1/media is not mounted at /mnt/homelab/media" {
+		t.Fatalf("messages = %v", h.messages)
+	}
+
+	// When the agent is offline, the open alert stays open.
+	h.agent.err = errors.New("offline")
+	h.agent.mounts = nil
+	h.service.CheckSystem(ctx)
+	if len(h.messages) != 1 || len(h.service.Status().Errors) != 1 {
+		t.Fatalf("messages = %v, errors = %v", h.messages, h.service.Status().Errors)
+	}
+
+	h.agent.err = nil
+	h.agent.mounts = []agent.Mount{media}
+	h.agent.mounts[0].Used = 95
+	h.service.CheckSystem(ctx)
+	want := "⚠️ Share nas:/volume1/media is 95% full\n✅ Fixed: Share nas:/volume1/media is not mounted at /mnt/homelab/media"
+	if len(h.messages) != 2 || h.messages[1] != want {
+		t.Fatalf("messages = %q", h.messages)
 	}
 }
