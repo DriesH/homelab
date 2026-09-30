@@ -120,6 +120,10 @@ func (c *Client) Mounts(ctx context.Context) ([]Mount, error) {
 	return mounts, err
 }
 
+func (c *Client) SaveBackupJob(ctx context.Context, job BackupJob) error {
+	return c.do(ctx, http.MethodPut, "/v1/backup-job", job, nil)
+}
+
 // SignatureHeader carries the bundle signature as base64 JSON.
 const SignatureHeader = "X-Homelab-Signature"
 
@@ -216,6 +220,10 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	if response.StatusCode >= 300 {
 		message, _ := io.ReadAll(io.LimitReader(response.Body, 512))
 		return fmt.Errorf("host agent %s: %s %s", path, response.Status, strings.TrimSpace(string(message)))
+	}
+
+	if out == nil {
+		return nil
 	}
 
 	return json.NewDecoder(response.Body).Decode(out)

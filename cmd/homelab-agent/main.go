@@ -61,6 +61,7 @@ func run(socketPath string, socketGID int, logger *slog.Logger) error {
 	mux.HandleFunc("POST /v1/jobs", startJob(runner, logger))
 	mux.HandleFunc("GET /v1/jobs/{id}", getJob(runner))
 	mux.HandleFunc("GET /v1/mounts", listMounts(agent.NewMounts()))
+	mux.HandleFunc("PUT /v1/backup-job", saveBackupJob(logger))
 	upgrader := agent.NewUpgrader(version)
 	mux.HandleFunc("POST /v1/upgrade", startUpgrade(upgrader, logger))
 	mux.HandleFunc("GET /v1/upgrade", upgradeStatus(upgrader))
@@ -165,6 +166,30 @@ func startUpgrade(upgrader *agent.Upgrader, logger *slog.Logger) http.HandlerFun
 func upgradeStatus(upgrader *agent.Upgrader) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, upgrader.Status())
+	}
+}
+
+func saveBackupJob(logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var job agent.BackupJob
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&job); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		err := agent.SaveBackupJob(r.Context(), job)
+		switch {
+		case errors.Is(err, agent.ErrInvalidBackupJob):
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		case err != nil:
+			logger.Error("save backup job", "error", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		logger.Info("backup job saved", "schedule", job.Schedule(), "storage", job.Storage, "enabled", job.Enabled)
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
