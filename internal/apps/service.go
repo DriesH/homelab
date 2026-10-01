@@ -49,8 +49,10 @@ type App struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	// Tag marks the container of the app in Proxmox.
-	Tag   string `json:"-"`
-	Links []Link `json:"links"`
+	Tag string `json:"-"`
+	// Subdomain is the name that Homelab forwards to the app, like seerr in seerr.homelab.local.
+	Subdomain string `json:"-"`
+	Links     []Link `json:"links"`
 }
 
 var Catalog = []App{{
@@ -58,6 +60,7 @@ var Catalog = []App{{
 	Name:        "Media stack",
 	Description: "Request, find and download movies and series for Jellyfin. Downloads go through ProtonVPN.",
 	Tag:         "media",
+	Subdomain:   "seerr",
 	Links: []Link{
 		{Name: "Seerr", Description: "Requests", Port: 5055},
 		{Name: "Radarr", Description: "Movies", Port: 7878},
@@ -70,9 +73,11 @@ var Catalog = []App{{
 
 type AppView struct {
 	App
-	Installed bool   `json:"installed"`
-	VMID      int    `json:"vmid,omitempty"`
-	Status    string `json:"status,omitempty"`
+	Installed bool `json:"installed"`
+	// HostURL is the address of the app through Homelab, like https://seerr.homelab.local.
+	HostURL string `json:"hostUrl,omitempty"`
+	VMID    int    `json:"vmid,omitempty"`
+	Status  string `json:"status,omitempty"`
 	// Install is the last install of this app, while it runs or when it failed.
 	Install *agent.AppInstallStatus `json:"install"`
 	// Saved are the answers of a failed install, without secrets, for a retry.
@@ -103,6 +108,8 @@ type Options struct {
 	Proxmox Proxmox
 	// SelfVMID is the manager's container. The agent, and so the new app, runs on its node.
 	SelfVMID int
+	// Hostname is the name of Homelab, like homelab.local, for the app names below it.
+	Hostname string
 	Notify   func(ctx context.Context, text string)
 	Logger   *slog.Logger
 	// PollInterval is how often a running install is checked. Tests shorten it.
@@ -149,6 +156,9 @@ func (s *Service) Status(ctx context.Context) (View, error) {
 
 		if guest, found := findGuest(resources, app.Tag); found {
 			appView.Installed, appView.VMID, appView.Status = true, guest.VMID, guest.Status
+			if app.Subdomain != "" && s.Hostname != "" {
+				appView.HostURL = "https://" + app.Subdomain + "." + s.Hostname
+			}
 			if ip := s.guestIP(ctx, guest); ip != "" {
 				for i := range appView.Links {
 					appView.Links[i].URL = fmt.Sprintf("http://%s:%d", ip, appView.Links[i].Port)
@@ -168,6 +178,30 @@ func (s *Service) Status(ctx context.Context) (View, error) {
 	}
 
 	return view, nil
+}
+
+// Address returns http://<ip>:<port> of an installed app, for a link that works without the Homelab page.
+func (s *Service) Address(ctx context.Context, id string, port int) (string, error) {
+	index := slices.IndexFunc(Catalog, func(app App) bool { return app.ID == id })
+	if index < 0 {
+		return "", ErrUnknownApp
+	}
+	app := Catalog[index]
+
+	resources, err := s.Proxmox.Resources(ctx)
+	if err != nil {
+		return "", err
+	}
+	guest, found := findGuest(resources, app.Tag)
+	if !found {
+		return "", fmt.Errorf("the %s is not installed", strings.ToLower(app.Name))
+	}
+	ip := s.guestIP(ctx, guest)
+	if ip == "" {
+		return "", fmt.Errorf("container %d of the %s is not running", guest.VMID, strings.ToLower(app.Name))
+	}
+
+	return fmt.Sprintf("http://%s:%d", ip, port), nil
 }
 
 // node is where the host agent runs: the node of the manager's container.

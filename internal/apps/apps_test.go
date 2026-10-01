@@ -121,14 +121,14 @@ func TestStatusBeforeInstall(t *testing.T) {
 func TestStatusAfterInstall(t *testing.T) {
 	resources := append(baseResources(), proxmox.Resource{Type: "lxc", Node: "pve", VMID: 130, Name: "media", Status: "running", Tags: "homelab;media"})
 	fake := &fakeAgent{status: agent.AppInstallStatus{App: "media", State: agent.UpgradeSucceeded, VMID: 130}}
-	service := New(Options{Agent: fake, Proxmox: &fakeProxmox{resources: resources}, SelfVMID: 100})
+	service := New(Options{Agent: fake, Proxmox: &fakeProxmox{resources: resources}, SelfVMID: 100, Hostname: "homelab.local"})
 
 	view, err := service.Status(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	media := view.Apps[0]
-	if !media.Installed || media.VMID != 130 || media.Install != nil {
+	if !media.Installed || media.VMID != 130 || media.Install != nil || media.HostURL != "https://seerr.homelab.local" {
 		t.Fatalf("media = %+v", media)
 	}
 	if media.Links[0].URL != "http://192.168.1.50:5055" || media.Links[5].URL != "http://192.168.1.50:8080" {
@@ -225,5 +225,20 @@ func TestRetryAndChangedAnswers(t *testing.T) {
 	}
 	if err := service.Forget(ctx, "nextcloud"); !errors.Is(err, ErrUnknownApp) {
 		t.Fatalf("forget unknown: %v", err)
+	}
+}
+
+func TestAddress(t *testing.T) {
+	resources := append(baseResources(), proxmox.Resource{Type: "lxc", Node: "pve", VMID: 130, Name: "media", Status: "running", Tags: "homelab;media"})
+	service := New(Options{Agent: &fakeAgent{}, Proxmox: &fakeProxmox{resources: resources}, SelfVMID: 100})
+
+	address, err := service.Address(context.Background(), "media", 5055)
+	if err != nil || address != "http://192.168.1.50:5055" {
+		t.Fatalf("address = %q, err = %v", address, err)
+	}
+
+	service = New(Options{Agent: &fakeAgent{}, Proxmox: &fakeProxmox{resources: baseResources()}, SelfVMID: 100})
+	if _, err := service.Address(context.Background(), "media", 5055); err == nil || !strings.Contains(err.Error(), "not installed") {
+		t.Fatalf("err = %v", err)
 	}
 }

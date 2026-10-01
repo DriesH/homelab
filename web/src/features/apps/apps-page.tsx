@@ -84,7 +84,14 @@ function AppCard({ app, defaults }: { app: CatalogApp; defaults: Apps['defaults'
                         <Badge variant={app.status === 'running' ? 'secondary' : 'outline'}>{app.status}</Badge>
                     )}
                 </CardTitle>
-                <CardDescription>{app.description}</CardDescription>
+                <CardDescription className="flex flex-col gap-1">
+                    <span>{app.description}</span>
+                    {app.hostUrl && (
+                        <a href={app.hostUrl} target="_blank" rel="noreferrer" className="w-fit underline">
+                            {app.hostUrl.replace('https://', '')}
+                        </a>
+                    )}
+                </CardDescription>
                 {!app.installed && !running && (
                     <CardAction className="flex flex-wrap justify-end gap-2">
                         {saved ? (

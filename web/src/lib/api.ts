@@ -313,6 +313,7 @@ export type CatalogApp = {
     description: string
     links: { name: string; description: string; url?: string }[]
     installed: boolean
+    hostUrl?: string
     vmid?: number
     status?: string
     install: AppInstall | null
