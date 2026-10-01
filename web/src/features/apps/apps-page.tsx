@@ -152,7 +152,7 @@ function AppCard({ app, defaults }: { app: CatalogApp; defaults: Apps['defaults'
                         </li>
                     ))}
                 </ul>
-                {app.installed && (
+                {app.installed && app.id === 'media' && (
                     <p className="text-xs text-muted-foreground">
                         Log in to Seerr with your Jellyfin account. If you gave no Jellyfin admin during the install,
                         finish the setup of Seerr first: until then, anyone on your network can open it. Log in to the

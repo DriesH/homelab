@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Loader2Icon } from 'lucide-react'
 import { toast } from 'sonner'
@@ -13,11 +13,13 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { api, type Apps, type CatalogApp, type MediaStackAnswers, type SavedAnswers } from '@/lib/api'
 import { appsQuery } from '@/lib/queries'
+import { Field, Section } from './form-parts'
+import { JellyfinForm } from './jellyfin-form'
+import { keepSaved } from './keep-saved'
 
 type InstallDialogProps = {
     app: CatalogApp
@@ -33,15 +35,26 @@ export function InstallDialog({ app, defaults, saved, open, onOpenChange }: Inst
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-xl">
                 <DialogHeader>
-                    <DialogTitle>Install the {app.name.toLowerCase()}</DialogTitle>
+                    <DialogTitle>
+                        Install {app.id === 'jellyfin' ? 'Jellyfin' : `the ${app.name.toLowerCase()}`}
+                    </DialogTitle>
                     <DialogDescription>
-                        Homelab makes a new container for it on this host. Nothing else changes, except that Jellyfin
-                        gets read access to the media folder.
+                        {app.id === 'jellyfin'
+                            ? 'Homelab makes a new container for Jellyfin on this host, with read access to the media folder on the NAS.'
+                            : 'Homelab makes a new container for it on this host. Nothing else changes, except that Jellyfin gets read access to the media folder.'}
                     </DialogDescription>
                 </DialogHeader>
-                {open && (
-                    <MediaStackForm app={app} defaults={defaults} saved={saved} onDone={() => onOpenChange(false)} />
-                )}
+                {open &&
+                    (app.id === 'jellyfin' ? (
+                        <JellyfinForm defaults={defaults} saved={saved} onDone={() => onOpenChange(false)} />
+                    ) : (
+                        <MediaStackForm
+                            app={app}
+                            defaults={defaults}
+                            saved={saved}
+                            onDone={() => onOpenChange(false)}
+                        />
+                    ))}
             </DialogContent>
         </Dialog>
     )
@@ -395,34 +408,4 @@ function MediaStackForm({
 // folderHelp shows the full path on the NAS, so it's clear where the files go.
 function folderHelp(nasExport: string, folder: string) {
     return `${nasExport || '/volume1/media'}/${folder.trim() || '…'}`
-}
-
-const keepSaved = 'Saved on the host. Leave empty to keep it.'
-
-function Section({ title, help, children }: { title: string; help?: string; children: ReactNode }) {
-    return (
-        <fieldset className="flex flex-col gap-4">
-            <div>
-                <legend className="text-sm font-medium">{title}</legend>
-                {help && <p className="text-xs text-muted-foreground">{help}</p>}
-            </div>
-            {children}
-        </fieldset>
-    )
-}
-
-type FieldProps = { id: string; label: string; help?: ReactNode; error?: string; children: ReactNode }
-
-function Field({ id, label, help, error, children }: FieldProps) {
-    return (
-        <div className="flex flex-col gap-2">
-            <Label htmlFor={id}>{label}</Label>
-            {children}
-            {error ? (
-                <p className="text-xs text-destructive">{error}</p>
-            ) : (
-                help && <p className="text-xs text-muted-foreground">{help}</p>
-            )}
-        </div>
-    )
 }

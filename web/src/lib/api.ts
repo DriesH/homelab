@@ -304,8 +304,20 @@ export type AppInstall = {
     log?: string
 }
 
+export type JellyfinAnswers = {
+    nasServer: string
+    nasExport: string
+    moviesFolder: string
+    seriesFolder: string
+    adminUsername: string
+    adminPassword: string
+    theme: boolean
+    storage: string
+}
+
 export type SavedAnswers = {
     answers: MediaStackAnswers
+    jellyfin: JellyfinAnswers
     hasJellyfinApiKey: boolean
     hasJellyfinAdminPassword: boolean
     hasOpenSubtitlesPassword: boolean
@@ -331,6 +343,7 @@ export type Apps = {
         storages: string[]
         storage: string
         jellyfinVmid?: number
+        mediaShare?: string
         moviesFolder: string
         seriesFolder: string
         vpnCountries: string
@@ -474,6 +487,8 @@ export const api = {
     setTailscaleService: ({ name, published }: { name: string; published: boolean }) =>
         request<void>('PUT', `/tailscale/services/${name}`, { published }),
     apps: () => request<Apps>('GET', '/apps'),
+    installJellyfin: (jellyfin: JellyfinAnswers, keepSecrets = false) =>
+        request<void>('POST', '/apps/jellyfin/install', { jellyfin, keepSecrets }),
     installApp: (id: string, answers: MediaStackAnswers, keepSecrets = false) =>
         request<void>('POST', `/apps/${id}/install`, { ...answers, keepSecrets }),
     retryApp: (id: string) => request<void>('POST', `/apps/${id}/retry`),
