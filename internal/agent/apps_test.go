@@ -288,3 +288,106 @@ func TestSavedAdminPasswordOnlyForTheSameAdmin(t *testing.T) {
 		t.Fatalf("a new admin got the old password: %v", err)
 	}
 }
+
+func validJellyfin() JellyfinAnswers {
+	return JellyfinAnswers{
+		NASServer: "192.168.1.5", NASExport: "/volume1/media",
+		MoviesFolder: "movies", SeriesFolder: "series",
+		AdminUsername: "dries", AdminPassword: "jelly pass", Theme: true, Storage: "local-lvm",
+	}
+}
+
+func TestJellyfinAnswersValidate(t *testing.T) {
+	if err := validJellyfin().Validate(); err != nil {
+		t.Fatal(err)
+	}
+	mounted := validJellyfin()
+	mounted.NASServer, mounted.NASExport = "", ""
+	if err := mounted.Validate(); err != nil {
+		t.Fatalf("an already mounted share: %v", err)
+	}
+
+	for name, change := range map[string]func(*JellyfinAnswers){
+		"only the NAS address": func(a *JellyfinAnswers) { a.NASExport = "" },
+		"no admin":             func(a *JellyfinAnswers) { a.AdminUsername = "" },
+		"no password":          func(a *JellyfinAnswers) { a.AdminPassword = "" },
+		"password newline":     func(a *JellyfinAnswers) { a.AdminPassword = "a\nTHEME=y" },
+		"same folders":         func(a *JellyfinAnswers) { a.SeriesFolder = "Movies" },
+		"bad storage":          func(a *JellyfinAnswers) { a.Storage = "a b" },
+	} {
+		answers := validJellyfin()
+		change(&answers)
+		if err := answers.Validate(); !errors.Is(err, ErrInvalidAnswers) {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+}
+
+func TestJellyfinInstall(t *testing.T) {
+	installer, unit := newTestInstaller(t)
+	if err := os.MkdirAll(filepath.Join(installer.StacksDir, "jellyfin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(installer.StacksDir, "jellyfin", "install.sh"), nil, 0o755)
+
+	if err := installer.Install(JellyfinApp, InstallRequest{Jellyfin: validJellyfin()}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(unit.started[0], "/jellyfin/install.sh") {
+		t.Fatalf("script = %s", unit.started[0])
+	}
+	answers, _ := os.ReadFile(unit.started[1])
+	for _, line := range []string{"JELLYFIN_ADMIN_PASSWORD=jelly pass\n", "THEME=y\n", "SERIES_FOLDER=series\n"} {
+		if !strings.Contains(string(answers), line) {
+			t.Errorf("answers miss %q:\n%s", line, answers)
+		}
+	}
+
+	// While it runs or after a failure, the key never shows.
+	log := "==> Setting up Jellyfin\nHOMELAB jellyfin-key 0123456789abcdef0123456789abcdef\n==> Done\nHOMELAB app jellyfin 140 192.168.1.60\n"
+	os.WriteFile(installer.logPath(), []byte(log), 0o600)
+	if status := installer.Status(); status.APIKey != "" || strings.Contains(status.Log, "jellyfin-key") {
+		t.Fatalf("running status = %+v", status)
+	}
+
+	os.WriteFile(installer.exitPath(), []byte("0\n"), 0o600)
+	unit.running = false
+	status := installer.Status()
+	if status.State != UpgradeSucceeded || status.APIKey != "0123456789abcdef0123456789abcdef" || status.IP != "192.168.1.60" {
+		t.Fatalf("done status = %+v", status)
+	}
+	if strings.Contains(status.Log, "jellyfin-key") || !strings.Contains(status.Log, "==> Done") {
+		t.Fatalf("the key is in the log:\n%s", status.Log)
+	}
+}
+
+func TestJellyfinRetryKeepsTheAdminPassword(t *testing.T) {
+	installer, unit := newTestInstaller(t)
+	os.MkdirAll(filepath.Join(installer.StacksDir, "jellyfin"), 0o755)
+	os.WriteFile(filepath.Join(installer.StacksDir, "jellyfin", "install.sh"), nil, 0o755)
+
+	if err := installer.Install(JellyfinApp, InstallRequest{Jellyfin: validJellyfin()}); err != nil {
+		t.Fatal(err)
+	}
+	unit.running = false
+
+	saved, err := installer.Saved(JellyfinApp)
+	if err != nil || saved == nil || saved.Jellyfin.AdminPassword != "" || !saved.HasJellyfinAdminPassword || saved.Jellyfin.AdminUsername != "dries" {
+		t.Fatalf("saved = %+v, err = %v", saved, err)
+	}
+
+	changed := saved.Jellyfin
+	changed.Theme = false
+	if err := installer.Install(JellyfinApp, InstallRequest{Jellyfin: changed, KeepSecrets: true}); err != nil {
+		t.Fatal(err)
+	}
+	answers, _ := os.ReadFile(unit.started[len(unit.started)-1])
+	if !strings.Contains(string(answers), "JELLYFIN_ADMIN_PASSWORD=jelly pass\n") || !strings.Contains(string(answers), "THEME=n\n") {
+		t.Fatalf("answers:\n%s", answers)
+	}
+	unit.running = false
+
+	if err := installer.Retry(JellyfinApp); err != nil {
+		t.Fatal(err)
+	}
+}

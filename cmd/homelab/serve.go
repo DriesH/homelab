@@ -152,7 +152,14 @@ func serve() error {
 		SelfVMID: cfg.SelfVMID,
 		Hostname: cfg.Hostname,
 		Notify:   updateService.Notify,
-		Logger:   logger,
+		// A Jellyfin that Homelab installed is connected to the Jellyfin page at once.
+		OnInstalled: func(ctx context.Context, app string, status agent.AppInstallStatus) error {
+			if app != agent.JellyfinApp || status.APIKey == "" {
+				return nil
+			}
+			return jellyfinService.SaveSettings(ctx, jellyfin.Settings{URL: "http://" + status.IP + ":8096", APIKey: status.APIKey})
+		},
+		Logger: logger,
 	})
 	appProxy := appproxy.New(cfg.Hostname, []appproxy.App{
 		{Name: "seerr", Title: "Seerr", Resolve: func(ctx context.Context) (string, error) {
