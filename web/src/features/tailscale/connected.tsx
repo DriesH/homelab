@@ -1,7 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ExternalLinkIcon, TriangleAlertIcon } from 'lucide-react'
-import { toast } from 'sonner'
 
 import {
     AlertDialog,
@@ -23,25 +21,10 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { api, type Tailscale } from '@/lib/api'
 import { formatRelative } from '@/lib/format'
-import { tailscaleQuery } from '@/lib/queries'
 import { cn } from '@/lib/utils'
+import { useTailscaleMutation } from './use-tailscale-mutation'
 
 const adminConsole = 'https://login.tailscale.com/admin/machines'
-
-function useTailscaleMutation<T>(mutationFn: (input: T) => Promise<void>, success?: (input: T) => string) {
-    const queryClient = useQueryClient()
-
-    return useMutation({
-        mutationFn,
-        onSuccess(_, input) {
-            if (success) {
-                toast.success(success(input))
-            }
-            queryClient.invalidateQueries({ queryKey: tailscaleQuery.queryKey })
-        },
-        onError: (error) => toast.error(error.message),
-    })
-}
 
 export function ConnectedCard({ tailscale }: { tailscale: Tailscale }) {
     const [confirmOpen, setConfirmOpen] = useState(false)
