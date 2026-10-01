@@ -12,7 +12,8 @@ import (
 	"time"
 )
 
-// Mount is a network share on the host, like the NAS media share.
+// Mount is a network share on the host, like the NAS media share, or the
+// media folder of the apps.
 type Mount struct {
 	Path    string `json:"path"`
 	Source  string `json:"source"`
@@ -134,7 +135,7 @@ func statfs(path string) (size, used int64, err error) {
 	return size, used, nil
 }
 
-// unitMounts reads network mounts from systemd .mount unit files.
+// unitMounts reads network mounts and the media mount from systemd .mount unit files.
 func (m *Mounts) unitMounts() []Mount {
 	files, _ := filepath.Glob(filepath.Join(m.UnitDir, "*.mount"))
 
@@ -161,7 +162,12 @@ func (m *Mounts) unitMounts() []Mount {
 			}
 		}
 
-		if mount.Path != "" && slices.Contains(networkFSTypes, mount.FSType) {
+		switch {
+		case mount.Path != "" && slices.Contains(networkFSTypes, mount.FSType):
+			mounts = append(mounts, mount)
+		case mount.Path == MediaMount:
+			// A bind mount of a folder on a disk of this host.
+			mount.FSType = "folder"
 			mounts = append(mounts, mount)
 		}
 	}
@@ -194,7 +200,7 @@ func (m *Mounts) fstabMounts() []Mount {
 	return mounts
 }
 
-// mounted reads the network shares that are mounted right now.
+// mounted reads the network shares and the media mount that are mounted right now.
 func (m *Mounts) mounted() []Mount {
 	file, err := os.Open(m.MountInfo)
 	if err != nil {
@@ -208,11 +214,15 @@ func (m *Mounts) mounted() []Mount {
 		// Format: id parent major:minor root path options [optional...] - type source superoptions
 		before, after, found := strings.Cut(scanner.Text(), " - ")
 		fields, tail := strings.Fields(before), strings.Fields(after)
-		if !found || len(fields) < 5 || len(tail) < 2 || !slices.Contains(networkFSTypes, tail[0]) {
+		if !found || len(fields) < 5 || len(tail) < 2 {
+			continue
+		}
+		path := unescape(fields[4])
+		if !slices.Contains(networkFSTypes, tail[0]) && path != MediaMount {
 			continue
 		}
 
-		mounts = append(mounts, Mount{Path: unescape(fields[4]), Source: unescape(tail[1]), FSType: tail[0], Mounted: true})
+		mounts = append(mounts, Mount{Path: path, Source: unescape(tail[1]), FSType: tail[0], Mounted: true})
 	}
 
 	return mounts

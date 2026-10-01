@@ -56,8 +56,11 @@ var (
 // MediaStackAnswers are the questions of stacks/arr/install.sh. Every value
 // is checked, so no line breaks or shell code reach the answers file.
 type MediaStackAnswers struct {
-	NASServer string `json:"nasServer"`
-	NASExport string `json:"nasExport"`
+	// The media is on a NAS (NASServer and NASExport), or in a folder on the
+	// host (MediaFolder). All three are empty when the media is already mounted.
+	NASServer   string `json:"nasServer"`
+	NASExport   string `json:"nasExport"`
+	MediaFolder string `json:"mediaFolder"`
 	// MoviesFolder and SeriesFolder are folders in the share. Each gets a Jellyfin library.
 	MoviesFolder        string `json:"moviesFolder"`
 	SeriesFolder        string `json:"seriesFolder"`
@@ -85,11 +88,11 @@ type MediaStackAnswers struct {
 func (a MediaStackAnswers) Validate() error {
 	invalid := func(message string) error { return fmt.Errorf("%w: %s", ErrInvalidAnswers, message) }
 
+	if message := mediaSourceError(a.NASServer, a.NASExport, a.MediaFolder); message != "" {
+		return invalid(message)
+	}
+
 	switch {
-	case !hostPattern.MatchString(a.NASServer):
-		return invalid("the NAS address must be an IP address or a hostname")
-	case !exportPattern.MatchString(a.NASExport):
-		return invalid("the NFS export must be a path, like /volume1/media")
 	case !arr.ValidFolder(a.MoviesFolder) || !arr.ValidFolder(a.SeriesFolder):
 		return invalid("the movies and series folders must be folder names, like movies")
 	case strings.EqualFold(a.MoviesFolder, a.SeriesFolder):
@@ -127,6 +130,25 @@ func (a MediaStackAnswers) Validate() error {
 	return nil
 }
 
+// mediaSourceError checks where the media is: on a NAS, in a folder on the
+// host, or neither when the media is already mounted.
+func mediaSourceError(server, export, folder string) string {
+	switch {
+	case folder != "" && (server != "" || export != ""):
+		return "give a NAS share or a folder on the host, not both"
+	case folder != "" && !ValidMediaFolder(folder):
+		return "the media folder must be a full path on the host, like /mnt/pve/media, outside the system folders"
+	case (server == "") != (export == ""):
+		return "give both the NAS address and the NFS export"
+	case server != "" && !hostPattern.MatchString(server):
+		return "the NAS address must be an IP address or a hostname"
+	case export != "" && !exportPattern.MatchString(export):
+		return "the NFS export must be a path, like /volume1/media"
+	}
+
+	return ""
+}
+
 func validWireGuardKey(key string) bool {
 	decoded, err := base64.StdEncoding.DecodeString(key)
 	return err == nil && len(decoded) == 32
@@ -141,6 +163,7 @@ func (a MediaStackAnswers) file() string {
 	lines := []string{
 		"NAS_SERVER=" + a.NASServer,
 		"NAS_EXPORT=" + a.NASExport,
+		"MEDIA_FOLDER=" + a.MediaFolder,
 		"MOVIES_FOLDER=" + a.MoviesFolder,
 		"SERIES_FOLDER=" + a.SeriesFolder,
 		"WIREGUARD_PRIVATE_KEY=" + a.WireGuardPrivateKey,
@@ -163,9 +186,11 @@ func (a MediaStackAnswers) file() string {
 
 // JellyfinAnswers are the questions of stacks/jellyfin/install.sh.
 type JellyfinAnswers struct {
-	// NASServer and NASExport are empty when the media share is already mounted.
+	// The media is on a NAS (NASServer and NASExport), or in a folder on the
+	// host (MediaFolder). All three are empty when the media is already mounted.
 	NASServer     string `json:"nasServer"`
 	NASExport     string `json:"nasExport"`
+	MediaFolder   string `json:"mediaFolder"`
 	MoviesFolder  string `json:"moviesFolder"`
 	SeriesFolder  string `json:"seriesFolder"`
 	AdminUsername string `json:"adminUsername"`
@@ -177,13 +202,11 @@ type JellyfinAnswers struct {
 func (a JellyfinAnswers) Validate() error {
 	invalid := func(message string) error { return fmt.Errorf("%w: %s", ErrInvalidAnswers, message) }
 
+	if message := mediaSourceError(a.NASServer, a.NASExport, a.MediaFolder); message != "" {
+		return invalid(message)
+	}
+
 	switch {
-	case (a.NASServer == "") != (a.NASExport == ""):
-		return invalid("give both the NAS address and the NFS export, or neither when the share is already mounted")
-	case a.NASServer != "" && !hostPattern.MatchString(a.NASServer):
-		return invalid("the NAS address must be an IP address or a hostname")
-	case a.NASExport != "" && !exportPattern.MatchString(a.NASExport):
-		return invalid("the NFS export must be a path, like /volume1/media")
 	case !arr.ValidFolder(a.MoviesFolder) || !arr.ValidFolder(a.SeriesFolder):
 		return invalid("the movies and series folders must be folder names, like movies")
 	case strings.EqualFold(a.MoviesFolder, a.SeriesFolder):
@@ -208,6 +231,7 @@ func (a JellyfinAnswers) file() string {
 	lines := []string{
 		"NAS_SERVER=" + a.NASServer,
 		"NAS_EXPORT=" + a.NASExport,
+		"MEDIA_FOLDER=" + a.MediaFolder,
 		"MOVIES_FOLDER=" + a.MoviesFolder,
 		"SERIES_FOLDER=" + a.SeriesFolder,
 		"JELLYFIN_ADMIN_USERNAME=" + a.AdminUsername,

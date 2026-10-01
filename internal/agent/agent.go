@@ -125,6 +125,14 @@ func (c *Client) Mounts(ctx context.Context) ([]Mount, error) {
 	return mounts, err
 }
 
+// MediaFolders returns the Directory storages of Proxmox, as suggestions for the media folder.
+func (c *Client) MediaFolders(ctx context.Context) ([]MediaFolder, error) {
+	var folders []MediaFolder
+	err := c.do(ctx, http.MethodGet, "/v1/media-folders", nil, &folders)
+
+	return folders, err
+}
+
 func (c *Client) SaveBackupJob(ctx context.Context, job BackupJob) error {
 	return c.do(ctx, http.MethodPut, "/v1/backup-job", job, nil)
 }

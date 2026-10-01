@@ -62,6 +62,9 @@ func run(socketPath string, socketGID int, logger *slog.Logger) error {
 	mux.HandleFunc("POST /v1/jobs", startJob(runner, logger))
 	mux.HandleFunc("GET /v1/jobs/{id}", getJob(runner))
 	mux.HandleFunc("GET /v1/mounts", listMounts(agent.NewMounts()))
+	mux.HandleFunc("GET /v1/media-folders", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, agent.MediaFolders(agent.ProxmoxStorageConfig))
+	})
 	mux.HandleFunc("PUT /v1/backup-job", saveBackupJob(logger))
 	mux.Handle("GET /v1/console/{vmid}", agent.NewConsoles(logger))
 	logs := agent.NewLogs()
