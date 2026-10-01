@@ -53,6 +53,7 @@ Open http://localhost:5173 and log in with `admin` / `homelab-dev-password`. See
 - [Logs and console](docs/logs-and-console.md)
 - [Jellyfin](docs/jellyfin.md)
 - [Tailscale](docs/tailscale.md)
+- [App names (seerr.homelab.local)](docs/app-names.md)
 - [Media stack](docs/media-stack.md)
 - [Settings file (homelab.yaml)](docs/settings-file.md)
 - [Uninstall](docs/uninstall.md)
