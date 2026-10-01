@@ -11,6 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { api, type Apps, type CatalogApp } from '@/lib/api'
 import { appsQuery } from '@/lib/queries'
 import { formatDateTime } from '@/lib/format'
+import { AppActions } from './app-actions'
 import { InstallDialog } from './install-dialog'
 
 export function AppsPage() {
@@ -51,8 +52,8 @@ export function AppsPage() {
 function AppCard({ app, defaults }: { app: CatalogApp; defaults: Apps['defaults'] }) {
     const queryClient = useQueryClient()
     const [installOpen, setInstallOpen] = useState(false)
-    const install = app.install
-    const running = install?.state === 'running'
+    const operation = app.operation
+    const running = operation?.state === 'running'
     const saved = app.saved
 
     const refresh = () => queryClient.invalidateQueries({ queryKey: appsQuery.queryKey })
@@ -83,6 +84,7 @@ function AppCard({ app, defaults }: { app: CatalogApp; defaults: Apps['defaults'
                     {app.installed && (
                         <Badge variant={app.status === 'running' ? 'secondary' : 'outline'}>{app.status}</Badge>
                     )}
+                    {app.updateAvailable && !running && <Badge>Update available</Badge>}
                 </CardTitle>
                 <CardDescription className="flex flex-col gap-1">
                     <span>{app.description}</span>
@@ -92,6 +94,11 @@ function AppCard({ app, defaults }: { app: CatalogApp; defaults: Apps['defaults'
                         </a>
                     )}
                 </CardDescription>
+                {app.installed && app.managed && !running && (
+                    <CardAction className="flex flex-wrap justify-end gap-2">
+                        <AppActions app={app} />
+                    </CardAction>
+                )}
                 {!app.installed && !running && (
                     <CardAction className="flex flex-wrap justify-end gap-2">
                         {saved ? (
@@ -112,7 +119,13 @@ function AppCard({ app, defaults }: { app: CatalogApp; defaults: Apps['defaults'
             </CardHeader>
 
             <CardContent className="flex flex-col gap-4">
-                {install && <InstallProgress install={install} />}
+                {operation && <OperationProgress operation={operation} rollback={app.rollback} />}
+                {app.installed && !app.managed && (
+                    <p className="text-xs text-muted-foreground">
+                        Homelab did not install this container, so it can't update or remove it here. Update it on the
+                        Updates page.
+                    </p>
+                )}
                 {saved && !running && (
                     <p className="text-xs text-muted-foreground">
                         Your answers stay on the host until {formatDateTime(saved.until)}, so you can try again without
@@ -173,45 +186,75 @@ function AppCard({ app, defaults }: { app: CatalogApp; defaults: Apps['defaults'
     )
 }
 
-function InstallProgress({ install }: { install: NonNullable<CatalogApp['install']> }) {
+const operationText = {
+    install: {
+        running: 'Installing…',
+        runningDetail: 'This takes 5 to 15 minutes, mostly to download the images. You can leave this page.',
+        failed: 'The install failed',
+    },
+    update: {
+        running: 'Updating…',
+        runningDetail: 'This takes a few minutes. The app is offline while it restarts. You can leave this page.',
+        failed: 'The update failed',
+    },
+    remove: { running: 'Removing…', runningDetail: 'You can leave this page.', failed: 'The removal failed' },
+    vpn: {
+        running: 'Changing the VPN…',
+        runningDetail: 'Downloads stop for a minute while the VPN restarts. You can leave this page.',
+        failed: 'The new VPN settings did not connect',
+    },
+}
+
+function OperationProgress({
+    operation,
+    rollback,
+}: {
+    operation: NonNullable<CatalogApp['operation']>
+    rollback?: string
+}) {
     const log = useRef<HTMLPreElement>(null)
+    // An agent from before updates and removals sends no action.
+    const text = operationText[operation.action ?? 'install']
 
     // Follow the log while it grows.
     useEffect(() => {
         log.current?.scrollTo({ top: log.current.scrollHeight })
-    }, [install.log])
+    }, [operation.log])
 
-    const logView = install.log && (
+    const logView = operation.log && (
         <pre
             ref={log}
             className="max-h-72 overflow-auto rounded-md bg-muted p-3 font-mono text-xs whitespace-pre-wrap text-foreground"
         >
-            {install.log}
+            {operation.log}
         </pre>
     )
 
-    if (install.state === 'running') {
+    if (operation.state === 'running') {
         return (
             <div className="flex flex-col gap-3">
                 <Alert>
                     <Loader2Icon className="animate-spin" />
-                    <AlertTitle>Installing…</AlertTitle>
-                    <AlertDescription>
-                        This takes 5 to 15 minutes, mostly to download the images. You can leave this page.
-                    </AlertDescription>
+                    <AlertTitle>{text.running}</AlertTitle>
+                    <AlertDescription>{text.runningDetail}</AlertDescription>
                 </Alert>
                 {logView}
             </div>
         )
     }
 
-    if (install.state === 'failed') {
+    if (operation.state === 'failed') {
         return (
             <Alert variant="destructive">
                 <TriangleAlertIcon />
-                <AlertTitle>The install failed</AlertTitle>
+                <AlertTitle>{text.failed}</AlertTitle>
                 <AlertDescription className="flex flex-col gap-2">
-                    <span>{install.message}. If the install made a container, it removed it again.</span>
+                    <span>
+                        {operation.message}.
+                        {operation.action === 'install' && ' If the install made a container, it removed it again.'}
+                        {operation.action === 'vpn' && ' The old settings are back.'}
+                        {rollback && ` ${rollback}`}
+                    </span>
                     {logView && (
                         <details open>
                             <summary className="cursor-pointer">Log</summary>

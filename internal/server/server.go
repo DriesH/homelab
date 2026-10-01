@@ -111,6 +111,10 @@ type Apps interface {
 	Install(ctx context.Context, background context.Context, id string, request agent.InstallRequest) error
 	Retry(ctx context.Context, background context.Context, id string) error
 	Forget(ctx context.Context, id string) error
+	Update(ctx context.Context, background context.Context, id string) error
+	Remove(ctx context.Context, background context.Context, id string) error
+	VPNCountries(ctx context.Context, id string) (string, error)
+	ChangeVPN(ctx context.Context, background context.Context, id string, settings agent.VPNSettings) error
 }
 
 type SettingsFile interface {
@@ -203,6 +207,10 @@ func New(options Options) http.Handler {
 	mux.Handle("POST /api/apps/{id}/install", s.requireSession(http.HandlerFunc(s.appsInstall)))
 	mux.Handle("POST /api/apps/{id}/retry", s.requireSession(http.HandlerFunc(s.appsRetry)))
 	mux.Handle("DELETE /api/apps/{id}/answers", s.requireSession(http.HandlerFunc(s.appsForget)))
+	mux.Handle("POST /api/apps/{id}/update", s.requireSession(http.HandlerFunc(s.appsUpdate)))
+	mux.Handle("POST /api/apps/{id}/remove", s.requireSession(http.HandlerFunc(s.appsRemove)))
+	mux.Handle("GET /api/apps/{id}/vpn", s.requireSession(http.HandlerFunc(s.appsVPN)))
+	mux.Handle("PUT /api/apps/{id}/vpn", s.requireSession(http.HandlerFunc(s.appsChangeVPN)))
 	mux.Handle("GET /api/settings/export", s.requireSession(http.HandlerFunc(s.settingsExport)))
 	mux.Handle("POST /api/settings/import", s.requireSession(http.HandlerFunc(s.settingsImport)))
 	mux.Handle("POST /api/data-backup/download", s.requireSession(http.HandlerFunc(s.dataBackupDownload)))

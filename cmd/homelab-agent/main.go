@@ -76,6 +76,30 @@ func run(socketPath string, socketGID int, logger *slog.Logger) error {
 	apps := agent.NewAppInstaller()
 	mux.HandleFunc("POST /v1/apps/{app}/install", installApp(apps, logger))
 	mux.HandleFunc("POST /v1/apps/{app}/retry", retryApp(apps, logger))
+	mux.HandleFunc("POST /v1/apps/{app}/update", appOnContainer(apps.Update, "app update started", logger))
+	mux.HandleFunc("POST /v1/apps/{app}/remove", appOnContainer(apps.Remove, "app removal started", logger))
+	mux.HandleFunc("GET /v1/apps/media/vpn", func(w http.ResponseWriter, r *http.Request) {
+		vmid, _ := strconv.Atoi(r.URL.Query().Get("vmid"))
+		countries, err := apps.VPNCountries(r.Context(), vmid)
+		if err != nil {
+			writeAppError(w, logger, agent.MediaStackApp, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, agent.VPNSettings{Countries: countries})
+	})
+	mux.HandleFunc("PUT /v1/apps/media/vpn", func(w http.ResponseWriter, r *http.Request) {
+		var request agent.VPNRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&request); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		if err := apps.ChangeVPN(request.VMID, request.VPNSettings); err != nil {
+			writeAppError(w, logger, agent.MediaStackApp, err)
+			return
+		}
+		logger.Info("vpn change started", "vmid", request.VMID)
+		w.WriteHeader(http.StatusAccepted)
+	})
 	mux.HandleFunc("GET /v1/apps/{app}/answers", func(w http.ResponseWriter, r *http.Request) {
 		saved, err := apps.Saved(r.PathValue("app"))
 		if err != nil {
@@ -230,9 +254,30 @@ func retryApp(apps *agent.AppInstaller, logger *slog.Logger) http.HandlerFunc {
 	}
 }
 
+// appOnContainer runs an update or a removal of the app in container vmid.
+func appOnContainer(run func(app string, vmid int) error, message string, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var request agent.AppContainerRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&request); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		app := r.PathValue("app")
+		if err := run(app, request.VMID); err != nil {
+			writeAppError(w, logger, app, err)
+			return
+		}
+
+		logger.Info(message, "app", app, "vmid", request.VMID)
+		w.WriteHeader(http.StatusAccepted)
+	}
+}
+
 func writeAppError(w http.ResponseWriter, logger *slog.Logger, app string, err error) {
 	switch {
-	case errors.Is(err, agent.ErrInvalidAnswers), errors.Is(err, agent.ErrUnknownApp), errors.Is(err, agent.ErrNoSavedAnswers):
+	case errors.Is(err, agent.ErrInvalidAnswers), errors.Is(err, agent.ErrUnknownApp), errors.Is(err, agent.ErrNoSavedAnswers),
+		errors.Is(err, agent.ErrInvalidContainer):
 		http.Error(w, err.Error(), http.StatusBadRequest)
 	case errors.Is(err, agent.ErrAppInstallRunning):
 		http.Error(w, err.Error(), http.StatusConflict)

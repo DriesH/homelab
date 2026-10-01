@@ -307,8 +307,9 @@ export type DockerLogs = {
     entries: LogEntry[]
 }
 
-export type AppInstall = {
+export type AppOperation = {
     app?: string
+    action?: 'install' | 'update' | 'remove' | 'vpn'
     state: 'idle' | 'running' | 'succeeded' | 'failed'
     message?: string
     startedAt?: string
@@ -345,10 +346,15 @@ export type CatalogApp = {
     description: string
     links: { name: string; description: string; url?: string }[]
     installed: boolean
+    // managed is set when Homelab installed the container, so it can update and remove it.
+    managed: boolean
+    version?: string
+    updateAvailable: boolean
     hostUrl?: string
     vmid?: number
     status?: string
-    install: AppInstall | null
+    operation: AppOperation | null
+    rollback?: string
     saved: SavedAnswers | null
 }
 
@@ -515,6 +521,11 @@ export const api = {
         request<void>('POST', `/apps/${id}/install`, { ...answers, keepSecrets }),
     retryApp: (id: string) => request<void>('POST', `/apps/${id}/retry`),
     forgetAppAnswers: (id: string) => request<void>('DELETE', `/apps/${id}/answers`),
+    updateApp: (id: string) => request<void>('POST', `/apps/${id}/update`),
+    removeApp: (id: string) => request<void>('POST', `/apps/${id}/remove`),
+    vpnSettings: (id: string) => request<{ countries: string }>('GET', `/apps/${id}/vpn`),
+    changeVpn: (id: string, settings: { countries: string; wireguardPrivateKey: string }) =>
+        request<void>('PUT', `/apps/${id}/vpn`, settings),
     settingsExportUrl: '/api/settings/export',
     downloadDataBackup,
     restoreDataBackup,

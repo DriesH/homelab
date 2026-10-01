@@ -181,7 +181,11 @@ func (p *fakeProxmox) node(w http.ResponseWriter, r *http.Request) {
 		log.Println("restore", r.Form.Get("ostemplate"), "to", r.Form.Get("vmid"))
 		writeData(w, "UPID:pve:restore")
 	case len(parts) == 3 && parts[0] == "lxc" && parts[2] == "config":
-		writeData(w, map[string]any{"rootfs": "local-lvm:vm-" + parts[1] + "-disk-0,size=8G"})
+		// The installed apps are from an older release, so the Apps page offers an update.
+		writeData(w, map[string]any{
+			"rootfs":      "local-lvm:vm-" + parts[1] + "-disk-0,size=8G",
+			"description": "Installed by Homelab\nhomelab-version: v0.7.1\n",
+		})
 	case len(parts) == 3 && parts[0] == "lxc" && parts[2] == "interfaces":
 		var vmid int
 		fmt.Sscan(parts[1], &vmid)

@@ -159,7 +159,16 @@ func serve() error {
 			}
 			return jellyfinService.SaveSettings(ctx, jellyfin.Settings{URL: "http://" + status.IP + ":8096", APIKey: status.APIKey})
 		},
-		Logger: logger,
+		// The Jellyfin page forgets a Jellyfin that is gone.
+		OnRemoved: func(ctx context.Context, app string, ip string) error {
+			if app != agent.JellyfinApp {
+				return nil
+			}
+			_, err := jellyfinService.Disconnect(ip)
+			return err
+		},
+		Version: version,
+		Logger:  logger,
 	})
 	appProxy := appproxy.New(cfg.Hostname, []appproxy.App{
 		{Name: "seerr", Title: "Seerr", Resolve: func(ctx context.Context) (string, error) {

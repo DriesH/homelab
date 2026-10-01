@@ -70,3 +70,28 @@ Without a Jellyfin admin, open Seerr after the install and do its setup yourself
 The Jellyfin admin password is a secret like the other passwords: it goes to the container on stdin and is never written to a file there. Seerr then makes its own Jellyfin API key.
 
 The agent checks every answer before it writes them to a file that only root can read. The installer deletes that file when it has read it.
+
+## VPN settings
+
+To use other server countries or a new WireGuard key, click **VPN** on the Apps page. Leave the key empty to keep the current key. A new key needs "NAT-PMP (Port Forwarding)" on, like the first one.
+
+Homelab writes the new settings in `/opt/arr/.env` in the container, and restarts Gluetun, qBittorrent, Prowlarr and FlareSolverr. Downloads stop for about a minute. If the VPN does not connect with the new settings, Homelab puts the old settings back and shows the VPN log.
+
+The key goes to the container on stdin. It never goes back to the browser.
+
+## Update and remove
+
+The Apps page shows "Update available" when the stack in the container is from an older Homelab release.
+
+**Update** does these steps:
+
+1. It makes a snapshot of the container.
+2. It updates the packages in the container.
+3. It copies the `compose.yaml`, `recyclarr.yml` and `homelab-arr` of this Homelab release into the container.
+4. It downloads the new images and restarts the apps that changed.
+
+The settings in the apps stay, because Homelab does not keep your passwords. If the update fails, Homelab rolls the container back to the snapshot.
+
+**Remove** removes the container with its disks and snapshots. This includes the downloads disk, so downloads that did not finish are lost. Your movies and series stay in the media folder, and Jellyfin keeps its libraries. The backups of the container stay, so you can restore it on the Backups page. When no other container uses the media folder, Homelab also removes its mount on the host.
+
+Homelab only updates and removes a container with the tags `homelab` and `media`. The installer gives it these tags.

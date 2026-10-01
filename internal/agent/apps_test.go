@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -75,6 +77,7 @@ func TestMediaStackAnswersValidate(t *testing.T) {
 }
 
 type fakeAppUnit struct {
+	args    []string
 	started []string
 	running bool
 }
@@ -94,8 +97,9 @@ func newTestInstaller(t *testing.T) (*AppInstaller, *fakeAppUnit) {
 	installer := &AppInstaller{
 		Dir:       filepath.Join(t.TempDir(), "apps"),
 		StacksDir: stacks,
-		start: func(script, answersPath, logPath, exitPath string) error {
-			unit.started = append(unit.started, script, answersPath)
+		start: func(script string, args []string, cleanup, logPath, exitPath string) error {
+			unit.started = append(unit.started, script, cleanup)
+			unit.args = args
 			unit.running = true
 			return nil
 		},
@@ -151,6 +155,47 @@ func TestAppInstall(t *testing.T) {
 	}
 }
 
+func TestAppUpdateAndRemove(t *testing.T) {
+	installer, unit := newTestInstaller(t)
+
+	if err := installer.Update(MediaStackApp, 99); !errors.Is(err, ErrInvalidContainer) {
+		t.Fatalf("vmid 99: %v", err)
+	}
+	if err := installer.Remove("nextcloud", 130); !errors.Is(err, ErrUnknownApp) {
+		t.Fatalf("unknown app: %v", err)
+	}
+
+	if err := installer.Update(MediaStackApp, 130); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(unit.args, []string{"--update", "--ctid", "130"}) || unit.started[1] != "" {
+		t.Fatalf("args = %v, cleanup = %q", unit.args, unit.started[1])
+	}
+	if err := installer.Remove(MediaStackApp, 130); !errors.Is(err, ErrAppInstallRunning) {
+		t.Fatalf("remove during an update: %v", err)
+	}
+
+	os.WriteFile(installer.exitPath(), []byte("1\n"), 0o600)
+	unit.running = false
+	if status := installer.Status(); status.Action != ActionUpdate || status.State != UpgradeFailed || status.Message != "the update stopped with exit code 1" {
+		t.Fatalf("status = %+v", status)
+	}
+
+	if err := installer.Remove(MediaStackApp, 130); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(unit.args, []string{"--remove", "--ctid", "130"}) {
+		t.Fatalf("args = %v", unit.args)
+	}
+	// A removal is no install, so the line of an install in the log means nothing.
+	os.WriteFile(installer.logPath(), []byte("HOMELAB app media 130 192.168.1.50\n"), 0o600)
+	os.WriteFile(installer.exitPath(), []byte("0\n"), 0o600)
+	unit.running = false
+	if status := installer.Status(); status.Action != ActionRemove || status.State != UpgradeSucceeded || status.VMID != 0 {
+		t.Fatalf("status = %+v", status)
+	}
+}
+
 func TestAppInstallFailures(t *testing.T) {
 	installer, unit := newTestInstaller(t)
 
@@ -159,7 +204,7 @@ func TestAppInstallFailures(t *testing.T) {
 	}
 	os.WriteFile(installer.exitPath(), []byte("1\n"), 0o600)
 	unit.running = false
-	if status := installer.Status(); status.State != UpgradeFailed || !strings.Contains(status.Message, "exit code 1") {
+	if status := installer.Status(); status.State != UpgradeFailed || status.Action != ActionInstall || status.Message != "the install stopped with exit code 1" {
 		t.Fatalf("status = %+v", status)
 	}
 
@@ -389,5 +434,60 @@ func TestJellyfinRetryKeepsTheAdminPassword(t *testing.T) {
 
 	if err := installer.Retry(JellyfinApp); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestChangeVPN(t *testing.T) {
+	installer, unit := newTestInstaller(t)
+
+	if err := installer.ChangeVPN(130, VPNSettings{Countries: "Netherlands\nARR_PASSWORD=x"}); !errors.Is(err, ErrInvalidAnswers) {
+		t.Fatalf("countries with a line break: %v", err)
+	}
+	if err := installer.ChangeVPN(130, VPNSettings{Countries: "Netherlands", WireGuardPrivateKey: "abc="}); !errors.Is(err, ErrInvalidAnswers) {
+		t.Fatalf("short key: %v", err)
+	}
+
+	if err := installer.ChangeVPN(130, VPNSettings{Countries: "Netherlands,Switzerland"}); err != nil {
+		t.Fatal(err)
+	}
+	answersPath := unit.started[1]
+	if !slices.Equal(unit.args, []string{"--vpn", "--ctid", "130", "--answers", answersPath}) {
+		t.Fatalf("args = %v", unit.args)
+	}
+	answers, _ := os.ReadFile(answersPath)
+	if string(answers) != "VPN_COUNTRIES=Netherlands,Switzerland\nWIREGUARD_PRIVATE_KEY=\n" {
+		t.Fatalf("answers = %q", answers)
+	}
+	if info, _ := os.Stat(answersPath); info.Mode().Perm() != 0o600 {
+		t.Errorf("answers mode = %v", info.Mode())
+	}
+	if status := installer.Status(); status.Action != ActionVPN || status.App != MediaStackApp {
+		t.Fatalf("status = %+v", status)
+	}
+}
+
+func TestVPNCountries(t *testing.T) {
+	installer, _ := newTestInstaller(t)
+	var command []string
+	output := "Netherlands,Switzerland\n"
+	installer.output = func(_ context.Context, name string, args ...string) ([]byte, error) {
+		command = append([]string{name}, args...)
+		return []byte(output), nil
+	}
+
+	countries, err := installer.VPNCountries(context.Background(), 130)
+	if err != nil || countries != "Netherlands,Switzerland" {
+		t.Fatalf("countries = %q, err = %v", countries, err)
+	}
+	if !slices.Equal(command, []string{"pct", "exec", "130", "--", "sed", "-n", "s/^VPN_COUNTRIES=//p", "/opt/arr/.env"}) {
+		t.Fatalf("command = %v", command)
+	}
+
+	output = ""
+	if _, err := installer.VPNCountries(context.Background(), 130); err == nil {
+		t.Fatal("no countries should be an error")
+	}
+	if _, err := installer.VPNCountries(context.Background(), 1); !errors.Is(err, ErrInvalidContainer) {
+		t.Fatalf("vmid 1: %v", err)
 	}
 }

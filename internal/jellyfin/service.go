@@ -99,6 +99,24 @@ func (s *Service) SaveSettings(ctx context.Context, input Settings) error {
 	return nil
 }
 
+// Disconnect forgets the URL and the API key when they are for the Jellyfin at host,
+// like after its container was removed. It reports whether it forgot them.
+func (s *Service) Disconnect(host string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	parsed, err := url.Parse(s.settings.URL)
+	if err != nil || host == "" || parsed.Hostname() != host {
+		return false, nil
+	}
+	if err := os.Remove(s.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+	s.settings = Settings{}
+
+	return true, nil
+}
+
 type NowPlaying struct {
 	User       string `json:"user"`
 	Device     string `json:"device"`

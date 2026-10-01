@@ -30,12 +30,34 @@ const (
 	SavedAnswersTTL = 24 * time.Hour
 )
 
+// AppAction is what the app unit does: install, update or remove an app.
+type AppAction string
+
+const (
+	ActionInstall AppAction = "install"
+	ActionUpdate  AppAction = "update"
+	ActionRemove  AppAction = "remove"
+	ActionVPN     AppAction = "vpn"
+)
+
+// name is the action in a message, like "the removal stopped".
+func (a AppAction) name() string {
+	switch a {
+	case ActionRemove:
+		return "removal"
+	case ActionVPN:
+		return "VPN change"
+	}
+	return string(a)
+}
+
 var (
 	ErrInvalidAnswers    = errors.New("invalid answers")
-	ErrAppInstallRunning = errors.New("an app is already being installed")
+	ErrAppInstallRunning = errors.New("an app is already being installed, updated or removed")
 	ErrUnknownApp        = errors.New("unknown app")
 	ErrAppNotAvailable   = errors.New("the installer is not on the host yet, update Homelab first")
 	ErrNoSavedAnswers    = errors.New("there are no saved answers, fill in the form again")
+	ErrInvalidContainer  = errors.New("invalid container")
 )
 
 var (
@@ -243,6 +265,27 @@ func (a JellyfinAnswers) file() string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
+// VPNSettings are the new VPN settings of the media stack. An empty key keeps the key in the container.
+type VPNSettings struct {
+	Countries           string `json:"countries"`
+	WireGuardPrivateKey string `json:"wireguardPrivateKey"`
+}
+
+func (v VPNSettings) Validate() error {
+	switch {
+	case !countriesPattern.MatchString(v.Countries):
+		return fmt.Errorf("%w: the VPN countries must be names, separated by commas", ErrInvalidAnswers)
+	case v.WireGuardPrivateKey != "" && !validWireGuardKey(v.WireGuardPrivateKey):
+		return fmt.Errorf("%w: the WireGuard private key must be 44 characters of base64", ErrInvalidAnswers)
+	}
+
+	return nil
+}
+
+func (v VPNSettings) file() string {
+	return "VPN_COUNTRIES=" + v.Countries + "\nWIREGUARD_PRIVATE_KEY=" + v.WireGuardPrivateKey + "\n"
+}
+
 // appAnswers are the answers of one installer.
 type appAnswers interface {
 	Validate() error
@@ -287,7 +330,9 @@ func (f savedFile) answersFor(app string) appAnswers {
 }
 
 type AppInstallStatus struct {
-	App        string       `json:"app,omitempty"`
+	App string `json:"app,omitempty"`
+	// Action is empty in the status of an install from before updates and removals.
+	Action     AppAction    `json:"action,omitempty"`
 	State      UpgradeState `json:"state"`
 	Message    string       `json:"message,omitempty"`
 	StartedAt  time.Time    `json:"startedAt,omitzero"`
@@ -305,12 +350,15 @@ type AppInstallStatus struct {
 type AppInstaller struct {
 	Dir       string
 	StacksDir string
-	// start runs the installer in the background. Tests replace it.
-	start func(script, answersPath, logPath, exitPath string) error
+	// start runs the installer with args in the background, and removes cleanup
+	// when it stops. Tests replace it.
+	start func(script string, args []string, cleanup, logPath, exitPath string) error
 	// running reports whether the install unit still runs.
 	running func() bool
 	// now is the clock for the saved answers. Tests replace it.
 	now func() time.Time
+	// output runs a command and returns its output. Tests replace it.
+	output func(ctx context.Context, name string, args ...string) ([]byte, error)
 
 	mu sync.Mutex
 }
@@ -322,13 +370,18 @@ func NewAppInstaller() *AppInstaller {
 		start:     startAppUnit,
 		running:   func() bool { return exec.Command("systemctl", "is-active", "--quiet", appUnit).Run() == nil },
 		now:       time.Now,
+		output:    commandOutput,
 	}
+}
+
+func commandOutput(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, name, args...).Output()
 }
 
 // NewAppInstallerWith runs the installers with start instead of systemd-run,
 // and asks running whether one still runs. The dev mock uses it to play installs.
-func NewAppInstallerWith(dir, stacksDir string, start func(script, answersPath, logPath, exitPath string) error, running func() bool) *AppInstaller {
-	return &AppInstaller{Dir: dir, StacksDir: stacksDir, start: start, running: running, now: time.Now}
+func NewAppInstallerWith(dir, stacksDir string, start func(script string, args []string, cleanup, logPath, exitPath string) error, running func() bool) *AppInstaller {
+	return &AppInstaller{Dir: dir, StacksDir: stacksDir, start: start, running: running, now: time.Now, output: commandOutput}
 }
 
 func (i *AppInstaller) statusPath() string { return filepath.Join(i.Dir, "status.json") }
@@ -412,23 +465,11 @@ func (i *AppInstaller) installLocked(app string, saved savedFile) error {
 		return err
 	}
 
-	if i.running() {
-		return ErrAppInstallRunning
-	}
-	script := filepath.Join(i.StacksDir, stackDirs[app], "install.sh")
-	if _, err := os.Stat(script); err != nil {
-		return ErrAppNotAvailable
+	script, err := i.prepare(app)
+	if err != nil {
+		return err
 	}
 
-	if err := os.MkdirAll(i.Dir, 0o700); err != nil {
-		return err
-	}
-	if err := os.Remove(i.exitPath()); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if err := os.WriteFile(i.logPath(), nil, 0o600); err != nil {
-		return err
-	}
 	answersPath := filepath.Join(i.Dir, app+".answers")
 	if err := os.WriteFile(answersPath, []byte(answers.file()), 0o600); err != nil {
 		return err
@@ -438,13 +479,122 @@ func (i *AppInstaller) installLocked(app string, saved savedFile) error {
 		return err
 	}
 
-	status := AppInstallStatus{App: app, State: UpgradeRunning, StartedAt: time.Now()}
-	if err := writeStatus(i.statusPath(), status); err != nil {
+	return i.run(app, ActionInstall, script, []string{"--answers", answersPath}, answersPath)
+}
+
+// Update updates the packages, the stack and the images of an installed app.
+// The installer checks that the container is the app of Homelab.
+func (i *AppInstaller) Update(app string, vmid int) error {
+	return i.runOnContainer(app, ActionUpdate, vmid)
+}
+
+// Remove removes the container of an installed app. Its backups stay.
+func (i *AppInstaller) Remove(app string, vmid int) error {
+	return i.runOnContainer(app, ActionRemove, vmid)
+}
+
+// VPNCountries reads the VPN countries of the media stack in container vmid.
+// The WireGuard key stays in the container.
+func (i *AppInstaller) VPNCountries(ctx context.Context, vmid int) (string, error) {
+	if vmid < 100 || vmid > 999999999 {
+		return "", ErrInvalidContainer
+	}
+
+	output, err := i.output(ctx, "pct", "exec", strconv.Itoa(vmid), "--", "sed", "-n", "s/^VPN_COUNTRIES=//p", "/opt/arr/.env")
+	if err != nil {
+		return "", fmt.Errorf("could not read the VPN settings of container %d: %w", vmid, err)
+	}
+	countries := strings.TrimSpace(string(output))
+	if !countriesPattern.MatchString(countries) {
+		return "", fmt.Errorf("container %d has no VPN countries in /opt/arr/.env", vmid)
+	}
+
+	return countries, nil
+}
+
+// ChangeVPN gives the media stack in container vmid new VPN settings. The
+// installer goes back to the old settings when the new ones do not connect.
+func (i *AppInstaller) ChangeVPN(vmid int, settings VPNSettings) error {
+	if err := settings.Validate(); err != nil {
+		return err
+	}
+	if vmid < 100 || vmid > 999999999 {
+		return ErrInvalidContainer
+	}
+
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	script, err := i.prepare(MediaStackApp)
+	if err != nil {
+		return err
+	}
+	// The key goes in a file that only root can read, not on the command line.
+	answersPath := filepath.Join(i.Dir, "vpn.answers")
+	if err := os.WriteFile(answersPath, []byte(settings.file()), 0o600); err != nil {
 		return err
 	}
 
-	if err := i.start(script, answersPath, i.logPath(), i.exitPath()); err != nil {
-		os.Remove(answersPath)
+	return i.run(MediaStackApp, ActionVPN, script, []string{"--vpn", "--ctid", strconv.Itoa(vmid), "--answers", answersPath}, answersPath)
+}
+
+func (i *AppInstaller) runOnContainer(app string, action AppAction, vmid int) error {
+	if _, ok := stackDirs[app]; !ok {
+		return ErrUnknownApp
+	}
+	if vmid < 100 || vmid > 999999999 {
+		return ErrInvalidContainer
+	}
+
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	script, err := i.prepare(app)
+	if err != nil {
+		return err
+	}
+
+	return i.run(app, action, script, []string{"--" + string(action), "--ctid", strconv.Itoa(vmid)}, "")
+}
+
+// prepare checks that nothing runs and that the installer is on the host, and
+// clears the files of the last run. It needs i.mu.
+func (i *AppInstaller) prepare(app string) (string, error) {
+	if i.running() {
+		return "", ErrAppInstallRunning
+	}
+	script := filepath.Join(i.StacksDir, stackDirs[app], "install.sh")
+	if _, err := os.Stat(script); err != nil {
+		return "", ErrAppNotAvailable
+	}
+
+	if err := os.MkdirAll(i.Dir, 0o700); err != nil {
+		return "", err
+	}
+	if err := os.Remove(i.exitPath()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	if err := os.WriteFile(i.logPath(), nil, 0o600); err != nil {
+		return "", err
+	}
+
+	return script, nil
+}
+
+// run starts the installer and saves its status. It needs i.mu.
+func (i *AppInstaller) run(app string, action AppAction, script string, args []string, cleanup string) error {
+	status := AppInstallStatus{App: app, Action: action, State: UpgradeRunning, StartedAt: time.Now()}
+	if err := writeStatus(i.statusPath(), status); err != nil {
+		if cleanup != "" {
+			os.Remove(cleanup)
+		}
+		return err
+	}
+
+	if err := i.start(script, args, cleanup, i.logPath(), i.exitPath()); err != nil {
+		if cleanup != "" {
+			os.Remove(cleanup)
+		}
 		status.State, status.Message, status.FinishedAt = UpgradeFailed, err.Error(), time.Now()
 		writeStatus(i.statusPath(), status)
 		return err
@@ -461,6 +611,9 @@ func (i *AppInstaller) Status() AppInstallStatus {
 	data, err := os.ReadFile(i.statusPath())
 	if err != nil || json.Unmarshal(data, &status) != nil {
 		return AppInstallStatus{State: UpgradeIdle}
+	}
+	if status.Action == "" {
+		status.Action = ActionInstall
 	}
 
 	log := ""
@@ -488,10 +641,14 @@ func (i *AppInstaller) Status() AppInstallStatus {
 		}
 		status.State = UpgradeSucceeded
 		if code := strings.TrimSpace(string(exit)); code != "0" {
-			status.State, status.Message = UpgradeFailed, "the installer stopped with exit code "+code
+			status.State, status.Message = UpgradeFailed, fmt.Sprintf("the %s stopped with exit code %s", status.Action.name(), code)
 		}
 	case !i.running():
-		status.State, status.Message = UpgradeFailed, "the install stopped before it finished"
+		status.State, status.Message = UpgradeFailed, fmt.Sprintf("the %s stopped before it finished", status.Action.name())
+	}
+
+	if status.Action != ActionInstall {
+		return status
 	}
 
 	if match := appResultPattern.FindStringSubmatch(log); match != nil && status.State == UpgradeSucceeded {
@@ -592,18 +749,19 @@ func (i *AppInstaller) loadSavedFile(app string) (savedFile, error) {
 }
 
 // startAppUnit runs the installer with systemd-run. The shell writes the exit
-// code, and removes the answers when the installer did not.
-func startAppUnit(script, answersPath, logPath, exitPath string) error {
+// code, and removes the answers (cleanup) when the installer did not.
+func startAppUnit(script string, args []string, cleanup, logPath, exitPath string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	output, err := exec.CommandContext(ctx, "systemd-run",
+	command := []string{
 		"--unit", appUnit, "--collect", "--quiet",
-		"--property", "StandardOutput=append:"+logPath,
-		"--property", "StandardError=append:"+logPath,
-		"/bin/bash", "-c", `bash "$0" --answers "$1"; code=$?; rm -f "$1"; echo "$code" >"$2"`,
-		script, answersPath, exitPath,
-	).CombinedOutput()
+		"--property", "StandardOutput=append:" + logPath,
+		"--property", "StandardError=append:" + logPath,
+		"/bin/bash", "-c", `exit_path="$1" cleanup="$2"; shift 2; bash "$@"; code=$?; [[ -z "$cleanup" ]] || rm -f "$cleanup"; echo "$code" >"$exit_path"`,
+		"homelab-app", exitPath, cleanup, script,
+	}
+	output, err := exec.CommandContext(ctx, "systemd-run", append(command, args...)...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("systemd-run: %v: %s", err, strings.TrimSpace(string(output)))
 	}
