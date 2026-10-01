@@ -69,3 +69,13 @@ func (c *Client) RunGuestAction(ctx context.Context, node string, guestType Gues
 
 	return upid, err
 }
+
+// ContainerDescription returns the notes of a container, as they are in the Proxmox UI.
+func (c *Client) ContainerDescription(ctx context.Context, node string, vmid int) (string, error) {
+	var config struct {
+		Description string `json:"description"`
+	}
+	err := c.get(ctx, containerPath(node, vmid)+"/config", &config)
+
+	return config.Description, err
+}
