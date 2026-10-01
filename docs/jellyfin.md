@@ -41,7 +41,14 @@ Newer GPUs can decode more, like VP9, AV1 and 10-bit HEVC. Turn those on in Jell
 
 ### A Jellyfin that is already installed
 
-A container named `jellyfin` counts as installed, also when Homelab did not make it (for example from community-scripts.org). The Apps page then shows it, and does not install a second one.
+A container named `jellyfin` counts as installed, also when Homelab did not make it (for example from community-scripts.org). The Apps page then shows it, and does not install a second one. Homelab can't update or remove that container from the Apps page. Update it on the Updates page.
+
+### Update and remove
+
+The Apps page can update and remove a Jellyfin that Homelab installed.
+
+- **Update** makes a snapshot, and then updates Jellyfin and the other packages. Your settings, users and libraries stay. If the update fails, Homelab rolls the container back to the snapshot.
+- **Remove** removes the container with its disks and snapshots, and the Jellyfin page disconnects. The backups of the container stay, so you can restore it on the Backups page. Your movies and series stay in the media folder. When no other container uses the media folder, Homelab also removes its mount on the host.
 
 ## The Jellyfin page
 
