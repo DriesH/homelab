@@ -5,12 +5,14 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"homelab/internal/appproxy"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -143,6 +145,26 @@ func serve() error {
 		return err
 	}
 
+	appsService := apps.New(apps.Options{
+		Agent:    agentClient,
+		Proxmox:  pve,
+		SelfVMID: cfg.SelfVMID,
+		Hostname: cfg.Hostname,
+		Notify:   updateService.Notify,
+		Logger:   logger,
+	})
+	appProxy := appproxy.New(cfg.Hostname, []appproxy.App{
+		{Name: "seerr", Title: "Seerr", Resolve: func(ctx context.Context) (string, error) {
+			return appsService.Address(ctx, agent.MediaStackApp, 5055)
+		}},
+		{Name: "jellyfin", Title: "Jellyfin", Resolve: func(context.Context) (string, error) {
+			if url := jellyfinService.Settings().URL; url != "" {
+				return url, nil
+			}
+			return "", errors.New("connect Jellyfin on the Jellyfin page of Homelab first")
+		}},
+	}, logger)
+
 	handler := server.New(server.Options{
 		Auth:       authService,
 		Proxmox:    pve,
@@ -155,13 +177,7 @@ func serve() error {
 		Backups:    backupService,
 		Logs:       agentClient,
 		Console:    agentClient,
-		Apps: apps.New(apps.Options{
-			Agent:    agentClient,
-			Proxmox:  pve,
-			SelfVMID: cfg.SelfVMID,
-			Notify:   updateService.Notify,
-			Logger:   logger,
-		}),
+		Apps:       appsService,
 		SettingsFile: &settingsfile.Service{
 			Updates:    updateService,
 			Health:     healthService,
@@ -179,12 +195,16 @@ func serve() error {
 		Logger:        logger,
 	})
 
+	// Requests for app names like seerr.homelab.local go to the app, before
+	// the checks of Homelab's own pages.
+	handler = appProxy.Handler(handler)
+
 	if cfg.Dev {
 		logger.Warn("dev mode: serving plain HTTP", "addr", cfg.HTTPAddr)
 		return stopReason(restartCtx, run(ctx, newServer(cfg.HTTPAddr, handler)))
 	}
 
-	authority, err := tlsca.Load(filepath.Join(cfg.DataDir, "tls"), cfg.Hostname)
+	authority, err := tlsca.Load(filepath.Join(cfg.DataDir, "tls"), cfg.Hostname, appProxy.Hostnames()...)
 	if err != nil {
 		return err
 	}
@@ -192,7 +212,7 @@ func serve() error {
 	httpsServer := newServer(cfg.HTTPSAddr, handler)
 	httpsServer.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: authority.GetCertificate}
 
-	httpServer := newServer(cfg.HTTPAddr, redirectHandler(cfg.Hostname, authority.CertPEM()))
+	httpServer := newServer(cfg.HTTPAddr, redirectHandler(cfg.Hostname, appProxy.IsAppHost, authority.CertPEM()))
 
 	logger.Info("listening", "https", cfg.HTTPSAddr, "http", cfg.HTTPAddr, "hostname", cfg.Hostname, "version", version)
 
@@ -234,8 +254,9 @@ func port(addr string) string {
 }
 
 // redirectHandler sends everything to HTTPS, except the CA certificate that
-// devices need to download before they can trust HTTPS.
-func redirectHandler(hostname string, caPEM []byte) http.Handler {
+// devices need to download before they can trust HTTPS. App names keep their
+// name. Any other host goes to the hostname, so this is no open redirect.
+func redirectHandler(hostname string, isAppHost func(string) bool, caPEM []byte) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /ca.crt", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/x-x509-ca-cert")
@@ -243,7 +264,14 @@ func redirectHandler(hostname string, caPEM []byte) http.Handler {
 		w.Write(caPEM)
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, fmt.Sprintf("https://%s%s", hostname, r.URL.RequestURI()), http.StatusMovedPermanently)
+		host := hostname
+		if isAppHost(r.Host) {
+			host = strings.ToLower(r.Host)
+			if name, _, err := net.SplitHostPort(host); err == nil {
+				host = name
+			}
+		}
+		http.Redirect(w, r, fmt.Sprintf("https://%s%s", host, r.URL.RequestURI()), http.StatusMovedPermanently)
 	})
 
 	return mux
