@@ -1,7 +1,15 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { EllipsisVerticalIcon, PlayIcon, PowerIcon, RotateCwIcon, SquareIcon, TerminalIcon } from 'lucide-react'
+import {
+    ChartLineIcon,
+    EllipsisVerticalIcon,
+    PlayIcon,
+    PowerIcon,
+    RotateCwIcon,
+    SquareIcon,
+    TerminalIcon,
+} from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
@@ -17,6 +25,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -28,6 +37,7 @@ import { api, type Guest, type GuestAction } from '@/lib/api'
 import { formatBytes, formatUptime } from '@/lib/format'
 import { overviewQuery } from '@/lib/queries'
 import { cn } from '@/lib/utils'
+import { UsageCharts } from './usage-charts'
 
 const actionLabels: Record<GuestAction, string> = {
     start: 'Start',
@@ -55,6 +65,7 @@ export function GuestList({ guests }: { guests: Guest[] }) {
 function GuestRow({ guest }: { guest: Guest }) {
     const queryClient = useQueryClient()
     const [confirmStop, setConfirmStop] = useState(false)
+    const [showHistory, setShowHistory] = useState(false)
     const running = guest.status === 'running'
 
     const action = useMutation({
@@ -111,6 +122,10 @@ function GuestRow({ guest }: { guest: Guest }) {
                     <EllipsisVerticalIcon />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-40">
+                    <DropdownMenuItem onClick={() => setShowHistory(true)}>
+                        <ChartLineIcon /> History
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
                     {running ? (
                         <>
                             {guest.type === 'lxc' && (
@@ -141,6 +156,19 @@ function GuestRow({ guest }: { guest: Guest }) {
                     )}
                 </DropdownMenuContent>
             </DropdownMenu>
+
+            <Dialog open={showHistory} onOpenChange={setShowHistory}>
+                <DialogContent className="sm:max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle>{guest.name}</DialogTitle>
+                        <DialogDescription>
+                            {guest.type === 'lxc' ? 'Container' : 'VM'} {guest.vmid}. CPU is the share of its{' '}
+                            {guest.maxCpu} cores.
+                        </DialogDescription>
+                    </DialogHeader>
+                    {showHistory && <UsageCharts target={guest} />}
+                </DialogContent>
+            </Dialog>
 
             <AlertDialog open={confirmStop} onOpenChange={setConfirmStop}>
                 <AlertDialogContent>

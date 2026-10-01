@@ -5,6 +5,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { overviewQuery } from '@/lib/queries'
+import { cn } from '@/lib/utils'
 import { GuestList } from './guest-list'
 import { NodeCard } from './node-card'
 
@@ -39,7 +40,7 @@ export function OverviewPage() {
                         Host agent {data.agent.connected ? 'connected' : 'offline'}
                     </Badge>
                 </div>
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className={cn('grid gap-4', data.nodes.length > 1 && 'md:grid-cols-2')}>
                     {data.nodes.map((node) => (
                         <NodeCard key={node.name} node={node} />
                     ))}
