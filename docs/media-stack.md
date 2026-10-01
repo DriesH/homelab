@@ -6,18 +6,16 @@ Prowlarr, Radarr, Sonarr, Bazarr, qBittorrent, Seerr, Recyclarr and FlareSolverr
 
 Install Jellyfin first, from the Apps page or in another way: the installer of the media stack finds a container named `jellyfin` and connects it. See [jellyfin.md](jellyfin.md).
 
-1. On the UGREEN NAS, turn on NFS: Control Panel > File Services > NFS.
-2. Add an NFS permission rule to the media share for the IP of the Proxmox host: Read/Write, and squash "Map all users to admin".
-3. Make sure that the movies and series folders allow writing over NFS. The installer checks this and names the folder that fails. NFS only looks at the folder permissions on the NAS disk, not at the share permissions for SMB users.
-4. Create a ProtonVPN WireGuard key with "NAT-PMP (Port Forwarding)" on.
-5. Optional: create a Jellyfin API key (Dashboard > API Keys).
-6. Optional: make a free account on [opensubtitles.com](https://www.opensubtitles.com). Not opensubtitles.org: that is the old site, and Bazarr can't use it without a paid VIP account.
+1. Choose where your movies and series are: on a NAS, or on a disk of the Proxmox host. See [media-folder.md](media-folder.md). If Jellyfin already uses a media folder, the media stack uses the same one.
+2. Create a ProtonVPN WireGuard key with "NAT-PMP (Port Forwarding)" on.
+3. Optional: create a Jellyfin API key (Dashboard > API Keys).
+4. Optional: make a free account on [opensubtitles.com](https://www.opensubtitles.com). Not opensubtitles.org: that is the old site, and Bazarr can't use it without a paid VIP account.
 
 ## Install
 
 Install it on the Apps page. The host agent runs the installer from the release bundle, in its own container, and the page shows the log. Telegram tells you when it is done.
 
-If the install fails, it removes the container and the NAS mount it made. Then:
+If the install fails, it removes the container and the media mount it made. Then:
 
 - **Try again** runs the install again with the same answers.
 - **Change answers** opens the form with your answers. Leave the WireGuard key, the password and the Jellyfin API key empty to keep them.
@@ -28,12 +26,12 @@ You can also run `stacks/arr/install.sh` from the bundle as root on the Proxmox 
 
 ## Folders
 
-Movies and series each get their own folder in the NAS share. The form asks for both names:
+Movies and series each get their own folder in the media folder. The form asks for both names:
 
-| Folder  | Default  | On the NAS                   | In the apps and Jellyfin |
-| ------- | -------- | ---------------------------- | ------------------------ |
-| Movies  | `movies` | `/volume1/media/movies`      | `/data/media/movies`     |
-| Series  | `series` | `/volume1/media/series`      | `/data/media/series`     |
+| Folder | Default  | On a NAS                | On the host             | In the apps and Jellyfin |
+| ------ | -------- | ----------------------- | ----------------------- | ------------------------ |
+| Movies | `movies` | `/volume1/media/movies` | `/mnt/pve/media/movies` | `/data/media/movies`     |
+| Series | `series` | `/volume1/media/series` | `/mnt/pve/media/series` | `/data/media/series`     |
 
 Radarr puts movies in the first folder and Sonarr puts series in the second. With a Jellyfin API key, the installer adds a "Movies" and a "Series" library for them. If a folder already has files, Jellyfin shows them. To add them to Radarr or Sonarr, use Library Import in those apps.
 
@@ -41,7 +39,7 @@ Media stacks that were installed before you could choose the folders use `movies
 
 ## What the installer does
 
-- mounts the NAS share on the host and shares it with the new LXC and with Jellyfin as `/data/media`;
+- mounts the media folder (the NAS share or the folder on the host) and shares it with the new LXC and with Jellyfin as `/data/media`;
 - keeps downloads on a local disk (`/data/downloads`);
 - connects all apps: logins, root folders, qBittorrent, Prowlarr sync, FlareSolverr, subtitles and Jellyfin libraries.
 

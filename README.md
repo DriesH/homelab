@@ -55,6 +55,7 @@ Open http://localhost:5173 and log in with `admin` / `homelab-dev-password`. See
 - [Tailscale](docs/tailscale.md)
 - [App names (seerr.homelab.local)](docs/app-names.md)
 - [Media stack](docs/media-stack.md)
+- [Media folder: on a NAS or on the host](docs/media-folder.md)
 - [Settings file (homelab.yaml)](docs/settings-file.md)
 - [Uninstall](docs/uninstall.md)
 - [Development](docs/development.md)
