@@ -3,9 +3,11 @@
 # Jellyfin repository, the media (on a NAS or a disk of this host) and the GPU of the host.
 #
 #   ./install.sh [--storage local-lvm] [--bridge vmbr0] [--ctid 140] [--answers file]
+#   ./install.sh --update --ctid 140
+#   ./install.sh --remove --ctid 140
 #
 # With --answers, it asks nothing and reads the answers from a KEY=value file.
-# The host agent uses this for the Apps page.
+# The host agent uses this for the Apps page, and also --update and --remove.
 set -euo pipefail
 
 STACK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,6 +19,7 @@ BRIDGE="vmbr0"
 CT_HOSTNAME="jellyfin"
 CT_ID=""
 ANSWERS=""
+MODE="install"
 NAS_SERVER=""
 NAS_EXPORT=""
 MEDIA_FOLDER=""
@@ -30,6 +33,8 @@ while [[ $# -gt 0 ]]; do
         --bridge) BRIDGE="$2"; shift 2 ;;
         --ctid) CT_ID="$2"; shift 2 ;;
         --answers) ANSWERS="$2"; shift 2 ;;
+        --update) MODE="update"; shift ;;
+        --remove) MODE="remove"; shift ;;
         *) die "unknown option: $1" ;;
     esac
 done
@@ -94,11 +99,33 @@ create_container() {
         --onboot 1 \
         --mp0 "$MEDIA_MOUNT,mp=/data/media,ro=1" \
         --tags "homelab;jellyfin" \
-        --description "Jellyfin, installed by Homelab"
+        --description "$(app_description "Jellyfin, installed by Homelab")"
 
     CREATED_CT="$CT_ID"
     pct start "$CT_ID"
     wait_for_network "$CT_ID"
+}
+
+# update upgrades Jellyfin and the other packages. The setup of Jellyfin stays.
+update() {
+    require_proxmox
+    require_app_container "$CT_ID" jellyfin
+    require_running "$CT_ID"
+
+    upgrade_packages "$CT_ID"
+
+    log "Waiting for Jellyfin"
+    local url
+    url="http://$(container_ip "$CT_ID"):8096/System/Info/Public"
+    for _ in $(seq 1 40); do
+        if curl -sf "$url" >/dev/null; then
+            pct set "$CT_ID" --description "$(app_description "Jellyfin, installed by Homelab")"
+            log "Done"
+            return 0
+        fi
+        sleep 3
+    done
+    die "Jellyfin does not answer after the update"
 }
 
 # on_exit removes the container and the mount that a failed install from the
@@ -115,9 +142,7 @@ on_exit() {
     fi
     if [[ -n "${CREATED_MOUNT:-}" ]]; then
         log "Removing the media mount"
-        systemctl disable --now "$MEDIA_MOUNT_UNIT" >/dev/null 2>&1 || true
-        rm -f "/etc/systemd/system/$MEDIA_MOUNT_UNIT"
-        systemctl daemon-reload || true
+        remove_media_mount
     fi
 }
 
@@ -181,6 +206,11 @@ configure_jellyfin() {
 }
 
 main() {
+    case "$MODE" in
+        update) update; return ;;
+        remove) require_proxmox; remove_app "$CT_ID" jellyfin; return ;;
+    esac
+
     trap on_exit EXIT
     preflight
     ask_settings

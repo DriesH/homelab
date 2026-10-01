@@ -5,8 +5,11 @@
 #
 #   ./install.sh [--storage local-lvm] [--bridge vmbr0] [--hostname media] [--ctid 130]
 #                [--downloads-size 200] [--jellyfin-ctid 110] [--answers file]
+#   ./install.sh --update --ctid 130
+#   ./install.sh --remove --ctid 130
+#   ./install.sh --vpn --ctid 130 --answers file    (VPN_COUNTRIES, and WIREGUARD_PRIVATE_KEY or empty to keep it)
 # With --answers, it asks nothing and reads the answers from a KEY=value file.
-# The host agent uses this for the Apps page.
+# The host agent uses this for the Apps page, and also --update and --remove.
 set -euo pipefail
 
 STACK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,6 +23,7 @@ CT_ID=""
 DOWNLOADS_SIZE=200
 JELLYFIN_CTID=""
 ANSWERS=""
+MODE="install"
 RESTART_JELLYFIN="y"
 NAS_SERVER=""
 NAS_EXPORT=""
@@ -34,6 +38,9 @@ while [[ $# -gt 0 ]]; do
         --downloads-size) DOWNLOADS_SIZE="$2"; shift 2 ;;
         --jellyfin-ctid) JELLYFIN_CTID="$2"; shift 2 ;;
         --answers) ANSWERS="$2"; shift 2 ;;
+        --update) MODE="update"; shift ;;
+        --remove) MODE="remove"; shift ;;
+        --vpn) MODE="vpn"; shift ;;
         *) die "unknown option: $1" ;;
     esac
 done
@@ -176,7 +183,7 @@ create_container() {
         --mp0 "$MEDIA_MOUNT,mp=/data/media" \
         --mp1 "$STORAGE:$DOWNLOADS_SIZE,mp=/data/downloads,backup=0" \
         --tags "homelab;media" \
-        --description "Homelab media stack"
+        --description "$(app_description "Homelab media stack")"
 
     CREATED_CT="$CT_ID"
     pct start "$CT_ID"
@@ -197,9 +204,7 @@ on_exit() {
     fi
     if [[ -n "${CREATED_MOUNT:-}" ]]; then
         log "Removing the media mount"
-        systemctl disable --now "$MEDIA_MOUNT_UNIT" >/dev/null 2>&1 || true
-        rm -f "/etc/systemd/system/$MEDIA_MOUNT_UNIT"
-        systemctl daemon-reload || true
+        remove_media_mount
     fi
 }
 
@@ -233,9 +238,7 @@ push_stack() {
         # Seerr and Recyclarr run as uid 1000 and do not fix their own folders.
         install -d -m 0755 -o 1000 -g 1000 /opt/arr/config/seerr /opt/arr/config/recyclarr
     '
-    pct push "$CT_ID" "$STACK_DIR/compose.yaml" /opt/arr/compose.yaml --perms 0644
-    pct push "$CT_ID" "$STACK_DIR/recyclarr.yml" /opt/arr/config/recyclarr/recyclarr.yml --perms 0644 --user 1000 --group 1000
-    pct push "$CT_ID" "$STACK_DIR/homelab-arr" /usr/local/bin/homelab-arr --perms 0755
+    push_stack_files
 
     local env_file
     env_file="$(mktemp)"
@@ -261,28 +264,46 @@ EOF
     pct push "$CT_ID" "$env_file" /opt/arr/.env --perms 0600
 }
 
+# push_stack_files copies the files of this release into the container.
+push_stack_files() {
+    pct push "$CT_ID" "$STACK_DIR/compose.yaml" /opt/arr/compose.yaml --perms 0644
+    pct push "$CT_ID" "$STACK_DIR/recyclarr.yml" /opt/arr/config/recyclarr/recyclarr.yml --perms 0644 --user 1000 --group 1000
+    pct push "$CT_ID" "$STACK_DIR/homelab-arr" /usr/local/bin/homelab-arr --perms 0755
+}
+
 start_stack() {
     log "Starting the stack (the first image download takes a few minutes)"
     # qBittorrent and Prowlarr wait for a healthy VPN, so a VPN problem can already fail here.
-    if ! pct exec "$CT_ID" -- docker compose --project-directory /opt/arr up -d --quiet-pull; then
+    if ! pct exec "$CT_ID" -- docker compose --project-directory /opt/arr up -d --remove-orphans --quiet-pull; then
         vpn_failed
     fi
+    wait_for_vpn
+}
 
+wait_for_vpn() {
+    vpn_healthy || vpn_failed
+}
+
+vpn_healthy() {
     log "Waiting for the VPN"
     for _ in $(seq 1 60); do
         if [[ "$(pct exec "$CT_ID" -- docker inspect -f '{{.State.Health.Status}}' gluetun)" == "healthy" ]]; then
-            return
+            return 0
         fi
         sleep 3
     done
 
-    vpn_failed
+    return 1
+}
+
+show_vpn_log() {
+    echo "Last lines of the VPN log (gluetun):" >&2
+    pct exec "$CT_ID" -- docker logs --tail 50 gluetun >&2 || true
 }
 
 # vpn_failed shows the end of the VPN log, because the container may be removed after this.
 vpn_failed() {
-    echo "Last lines of the VPN log (gluetun):" >&2
-    pct exec "$CT_ID" -- docker logs --tail 50 gluetun >&2 || true
+    show_vpn_log
     die "the VPN did not connect. Check the WireGuard key and the server countries, and read the VPN log above"
 }
 
@@ -325,7 +346,98 @@ configure_stack() {
         pct exec "$CT_ID" -- /usr/local/bin/homelab-arr configure
 }
 
+# update upgrades the packages, copies the stack of this release, and starts
+# the new images. The settings in the apps stay: they need no passwords.
+update() {
+    require_proxmox
+    for file in compose.yaml recyclarr.yml homelab-arr; do
+        [[ -f "$STACK_DIR/$file" ]] || die "missing $file next to install.sh"
+    done
+    require_app_container "$CT_ID" media
+    require_running "$CT_ID"
+
+    upgrade_packages "$CT_ID"
+
+    log "Copying the stack of Homelab $HOMELAB_VERSION into the container"
+    push_stack_files
+
+    log "Downloading the new images"
+    pct exec "$CT_ID" -- docker compose --project-directory /opt/arr pull --quiet
+    start_stack
+    pct exec "$CT_ID" -- docker image prune -f >/dev/null
+
+    pct set "$CT_ID" --description "$(app_description "Homelab media stack")"
+    log "Done"
+}
+
+# restart_vpn recreates Gluetun and the apps that share its network
+# (see compose.yaml), so they all use the new VPN connection.
+restart_vpn() {
+    log "Restarting the VPN and the apps behind it"
+    pct exec "$CT_ID" -- docker compose --project-directory /opt/arr up -d --force-recreate \
+        gluetun qbittorrent prowlarr flaresolverr && vpn_healthy
+}
+
+# change_vpn writes the new VPN settings in .env. When the VPN does not
+# connect with them, it puts the old .env back.
+change_vpn() {
+    require_proxmox
+    require_app_container "$CT_ID" media
+    require_running "$CT_ID"
+
+    local line key value countries="" private_key=""
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ -z "$line" ]] && continue
+        key="${line%%=*}" value="${line#*=}"
+        case "$key" in
+            VPN_COUNTRIES) countries="$value" ;;
+            WIREGUARD_PRIVATE_KEY) private_key="$value" ;;
+            *) die "unknown answer: $key" ;;
+        esac
+    done <"$ANSWERS"
+    # It holds the VPN key.
+    rm -f "$ANSWERS"
+    [[ -n "$countries" ]] || die "give the VPN countries"
+
+    log "Saving the new VPN settings"
+    pct exec "$CT_ID" -- cp -p /opt/arr/.env /opt/arr/.env.before-vpn
+    # The values go on stdin, so the key is not in the process list.
+    # shellcheck disable=SC2016 # expands inside the container
+    printf '%s\n%s\n' "$countries" "$private_key" | pct exec "$CT_ID" -- bash -euc '
+        read -r countries
+        read -r key
+        temp="$(mktemp /opt/arr/.env.XXXXXX)"
+        while IFS= read -r line; do
+            case "$line" in
+                VPN_COUNTRIES=*) printf "VPN_COUNTRIES=%s\n" "$countries" ;;
+                WIREGUARD_PRIVATE_KEY=*) [[ -n "$key" ]] && printf "WIREGUARD_PRIVATE_KEY=%s\n" "$key" || printf "%s\n" "$line" ;;
+                *) printf "%s\n" "$line" ;;
+            esac
+        done </opt/arr/.env >"$temp"
+        chmod 0600 "$temp"
+        mv -f "$temp" /opt/arr/.env
+    '
+
+    if restart_vpn; then
+        pct exec "$CT_ID" -- rm -f /opt/arr/.env.before-vpn
+        log "Done"
+        return 0
+    fi
+
+    show_vpn_log
+    log "The VPN did not connect, going back to the old settings"
+    pct exec "$CT_ID" -- mv -f /opt/arr/.env.before-vpn /opt/arr/.env
+    restart_vpn || log "The VPN does not connect with the old settings either"
+    die "the VPN did not connect with the new settings, so the old settings are back. Check the WireGuard key and the countries, and read the VPN log above"
+}
+
 main() {
+    case "$MODE" in
+        vpn) change_vpn; return ;;
+        update) update; return ;;
+        remove) require_proxmox; remove_app "$CT_ID" media; return ;;
+    esac
+
     trap on_exit EXIT
     preflight
     ask_settings

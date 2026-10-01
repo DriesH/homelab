@@ -170,7 +170,7 @@ EOF
 install_scripts() {
     install -d -m 0755 "$SCRIPTS_DIR"
     install -m 0755 "$BUNDLE_DIR/install.sh" "$SCRIPTS_DIR/install.sh.new"
-    install -m 0644 "$BUNDLE_DIR/lib.sh" "$SCRIPTS_DIR/lib.sh"
+    install -m 0644 "$BUNDLE_DIR/lib.sh" "$BUNDLE_DIR/VERSION" "$SCRIPTS_DIR/"
     mv -f "$SCRIPTS_DIR/install.sh.new" "$SCRIPTS_DIR/install.sh"
     # The Apps page installs stacks from here.
     if [[ -d "$BUNDLE_DIR/stacks/arr" ]]; then

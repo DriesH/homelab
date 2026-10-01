@@ -2,6 +2,9 @@
 # shellcheck shell=bash
 
 TEMPLATE_STORAGE="local"
+# HOMELAB_VERSION is the release of these scripts. The Apps page compares it
+# with the version in the description of a container.
+HOMELAB_VERSION="$(cat "$(dirname "${BASH_SOURCE[0]}")/VERSION" 2>/dev/null || echo unknown)"
 
 log() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 
@@ -68,6 +71,72 @@ wait_for_network() {
 
 container_ip() {
     pct exec "$1" -- hostname -I | awk '{ print $1 }'
+}
+
+# app_description is the description of a new or updated app container. The
+# manager reads the version line.
+app_description() {
+    printf '%s\nhomelab-version: %s\n' "$1" "$HOMELAB_VERSION"
+}
+
+# require_app_container CTID TAG stops unless the container is the app that
+# Homelab installed, with the tags homelab and TAG.
+require_app_container() {
+    local tags
+    [[ "$1" =~ ^[1-9][0-9]{2,8}$ ]] || die "invalid container ID: $1"
+    tags="$(pct config "$1" 2>/dev/null | sed -n 's/^tags: //p')"
+    if [[ ";$tags;" != *";homelab;"* || ";$tags;" != *";$2;"* ]]; then
+        die "container $1 is not the $2 app of Homelab (it needs the tags homelab and $2)"
+    fi
+}
+
+require_running() {
+    [[ "$(pct status "$1")" == "status: running" ]] || die "container $1 is not running, start it first"
+}
+
+# upgrade_packages upgrades the Debian packages in a container.
+upgrade_packages() {
+    log "Updating the packages in container $1"
+    pct exec "$1" -- bash -euc '
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update -q
+        apt-get -y -q -o Dpkg::Options::=--force-confold dist-upgrade
+        apt-get -y -q autoremove
+    '
+}
+
+# remove_app CTID TAG removes the container of an app with its disks and
+# snapshots. Its backups stay, so you can restore it on the Backups page.
+remove_app() {
+    require_app_container "$1" "$2"
+
+    if [[ "$(pct status "$1")" == "status: running" ]]; then
+        log "Shutting down container $1"
+        pct shutdown "$1" --timeout 60 || pct stop "$1"
+    fi
+    log "Removing container $1 with its disks and snapshots. Its backups stay"
+    pct destroy "$1" --purge 1
+
+    remove_unused_media_mount
+    log "Done"
+}
+
+# remove_unused_media_mount removes the media mount when no container uses it.
+# It never touches the files on the NAS or the disk.
+remove_unused_media_mount() {
+    [[ -f "/etc/systemd/system/$MEDIA_MOUNT_UNIT" ]] || return 0
+    if grep -qs "^mp[0-9]*: $MEDIA_MOUNT," /etc/pve/nodes/*/lxc/*.conf; then
+        return 0
+    fi
+
+    log "No container uses the media anymore, removing the mount at $MEDIA_MOUNT. The files stay where they are"
+    remove_media_mount
+}
+
+remove_media_mount() {
+    systemctl disable --now "$MEDIA_MOUNT_UNIT" >/dev/null 2>&1 || true
+    rm -f "/etc/systemd/system/$MEDIA_MOUNT_UNIT"
+    systemctl daemon-reload || true
 }
 
 # The media on the host: a NAS share, or a folder on a disk of the host. The
