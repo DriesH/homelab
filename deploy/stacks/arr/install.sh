@@ -22,9 +22,6 @@ JELLYFIN_CTID=""
 ANSWERS=""
 RESTART_JELLYFIN="y"
 
-# Media share on the host. Both this LXC and Jellyfin get it as /data/media.
-MEDIA_MOUNT="/mnt/homelab/media"
-MEDIA_MOUNT_UNIT="mnt-homelab-media.mount"
 # Unprivileged LXCs shift ids by 100000, and the containers run as uid 1000.
 HOST_CONTAINER_UID=101000
 
@@ -92,17 +89,6 @@ load_answers() {
     fi
 }
 
-# check_folders allows two different folder names in the share, and no paths.
-check_folders() {
-    local folder pattern='^[A-Za-z0-9]([A-Za-z0-9 ._-]{0,62}[A-Za-z0-9_-])?$'
-    for folder in "${MOVIES_FOLDER:-}" "${SERIES_FOLDER:-}"; do
-        if [[ ! "$folder" =~ $pattern || "$folder" == *..* ]]; then
-            die "'$folder' is not a folder name, use something like movies or series"
-        fi
-    done
-    [[ "${MOVIES_FOLDER,,}" != "${SERIES_FOLDER,,}" ]] || die "movies and series need different folders"
-}
-
 ask_settings() {
     if [[ -n "$ANSWERS" ]]; then
         load_answers
@@ -152,32 +138,7 @@ ask_settings() {
 }
 
 mount_nas() {
-    log "Mounting $NAS_SERVER:$NAS_EXPORT at $MEDIA_MOUNT"
-    install -d -m 0755 "$MEDIA_MOUNT"
-
-    cat >"/etc/systemd/system/$MEDIA_MOUNT_UNIT" <<EOF
-[Unit]
-Description=Homelab media share on the NAS
-After=network-online.target
-Wants=network-online.target
-# Containers bind-mount this folder, so mount it before they start.
-Before=pve-guests.service
-
-[Mount]
-What=$NAS_SERVER:$NAS_EXPORT
-Where=$MEDIA_MOUNT
-Type=nfs
-Options=_netdev,hard,noatime
-
-[Install]
-WantedBy=remote-fs.target
-EOF
-    CREATED_MOUNT=1
-    systemctl daemon-reload
-    systemctl enable "$MEDIA_MOUNT_UNIT"
-    # Restart, not start: a mount from an earlier try keeps old NFS settings and cached answers.
-    systemctl restart "$MEDIA_MOUNT_UNIT" || die "could not mount the NAS share, check that NFS is on in UGOS (Control Panel > File Services > NFS) and that the share has an NFS permission rule for this host"
-
+    mount_media_share
     check_writable
 }
 
