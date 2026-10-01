@@ -78,7 +78,7 @@ func (f *fakeInstalls) play(stack, answers, logPath, exitPath string) {
 	}
 	finish := func(code int) { os.WriteFile(exitPath, []byte(fmt.Sprintln(code)), 0o600) }
 
-	steps := []string{"==> Mounting the NAS share", "==> Downloading Debian 13 template"}
+	steps := []string{"==> Mounting the media", "==> Downloading Debian 13 template"}
 	if stack == "jellyfin" {
 		steps = append(steps, "==> Creating container 140 (jellyfin)", "==> Installing Jellyfin from repo.jellyfin.org",
 			"==> Passing the GPU (/dev/dri/renderD128) to the container", "==> Setting up Jellyfin", "==> Finishing the setup wizard")
@@ -100,6 +100,7 @@ func (f *fakeInstalls) play(stack, answers, logPath, exitPath string) {
 		return
 	}
 
+	mountMedia(answers)
 	if stack == "jellyfin" {
 		write("HOMELAB jellyfin-key 0123456789abcdef0123456789abcdef")
 		write("==> Done")
@@ -111,6 +112,41 @@ func (f *fakeInstalls) play(stack, answers, logPath, exitPath string) {
 		os.WriteFile(statePath("media-installed"), nil, 0o600)
 	}
 	finish(0)
+}
+
+// mediaMount is the media of the apps: the NAS share, or what an install
+// mounted. With .dev/no-media-mount, nothing is mounted yet.
+func mediaMount() []agent.Mount {
+	if _, err := os.Stat(statePath("no-media-mount")); err == nil {
+		return nil
+	}
+	source, fsType := "192.168.1.10:/volume1/media", "nfs"
+	if data, err := os.ReadFile(statePath("media-source")); err == nil {
+		source = strings.TrimSpace(string(data))
+	}
+	if strings.HasPrefix(source, "/") {
+		fsType = "folder"
+	}
+
+	return []agent.Mount{{Path: agent.MediaMount, Source: source, FSType: fsType, Mounted: true, Size: 7_900_000_000_000, Used: 5_300_000_000_000}}
+}
+
+// mountMedia keeps the media of a working install, like the installers do.
+func mountMedia(answers string) {
+	values := map[string]string{}
+	for line := range strings.Lines(answers) {
+		key, value, _ := strings.Cut(strings.TrimSpace(line), "=")
+		values[key] = value
+	}
+
+	source := values["MEDIA_FOLDER"]
+	if source == "" && values["NAS_SERVER"] != "" {
+		source = values["NAS_SERVER"] + ":" + values["NAS_EXPORT"]
+	}
+	if source != "" {
+		os.WriteFile(statePath("media-source"), []byte(source), 0o600)
+		os.Remove(statePath("no-media-mount"))
+	}
 }
 
 // addAppRoutes serves the app routes of the agent with the real installer.
