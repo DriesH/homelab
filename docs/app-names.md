@@ -25,3 +25,7 @@ Give the manager container a fixed IP in your router (a DHCP reservation). The n
 In the Jellyfin app on a phone or TV, you can use `https://jellyfin.homelab.local` as the server address, if that device trusts the Homelab CA. TV apps often do not, so keep the IP address there.
 
 Video through this name goes through the manager container. For heavy 4K streams, the direct address of Jellyfin is a bit faster.
+
+## Away from home
+
+`.local` names only work on your LAN. Over Tailscale, use Tailscale Services for the same apps: see [tailscale.md](tailscale.md#apps-on-your-tailnet-tailscale-services).
