@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -69,7 +70,14 @@ func (p *fakeProxmox) resources(w http.ResponseWriter, r *http.Request) {
 		{"type": "storage", "node": "pve", "storage": "local-lvm", "status": "available", "disk": 330_000_000_000, "maxdisk": 350_000_000_000},
 		{"type": "storage", "node": "pve", "storage": "backups", "status": "unknown"},
 	}
-	// The fake agent "installs" the media stack from the Apps page.
+	// Without the Jellyfin of a community script, to try the Jellyfin install.
+	if _, err := os.Stat(statePath("no-jellyfin")); err == nil {
+		resources = slices.DeleteFunc(resources, func(resource map[string]any) bool { return resource["name"] == "jellyfin" })
+	}
+	// The fake agent "installs" apps from the Apps page.
+	if _, err := os.Stat(statePath("jellyfin-installed")); err == nil {
+		resources = append(resources, map[string]any{"type": "lxc", "node": "pve", "vmid": 140, "name": "jellyfin", "status": "running", "tags": "homelab;jellyfin", "maxcpu": 2, "maxmem": 2_147_483_648, "uptime": 60})
+	}
 	if _, err := os.Stat(statePath("media-installed")); err == nil {
 		resources = append(resources, map[string]any{"type": "lxc", "node": "pve", "vmid": 130, "name": "media", "status": "running", "tags": "homelab;media", "maxcpu": 2, "maxmem": 4_294_967_296, "uptime": 60})
 	}
