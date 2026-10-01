@@ -21,9 +21,9 @@ DOWNLOADS_SIZE=200
 JELLYFIN_CTID=""
 ANSWERS=""
 RESTART_JELLYFIN="y"
-
-# Unprivileged LXCs shift ids by 100000, and the containers run as uid 1000.
-HOST_CONTAINER_UID=101000
+NAS_SERVER=""
+NAS_EXPORT=""
+MEDIA_FOLDER=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -67,7 +67,7 @@ load_answers() {
         [[ -z "$line" ]] && continue
         key="${line%%=*}" value="${line#*=}"
         case "$key" in
-            NAS_SERVER | NAS_EXPORT | MOVIES_FOLDER | SERIES_FOLDER | WIREGUARD_PRIVATE_KEY | VPN_COUNTRIES | \
+            NAS_SERVER | NAS_EXPORT | MEDIA_FOLDER | MOVIES_FOLDER | SERIES_FOLDER | WIREGUARD_PRIVATE_KEY | VPN_COUNTRIES | \
                 SUBTITLE_LANGUAGES | ARR_USERNAME | ARR_PASSWORD | JELLYFIN_API_KEY | JELLYFIN_ADMIN_USERNAME | \
                 JELLYFIN_ADMIN_PASSWORD | OPENSUBTITLES_USERNAME | OPENSUBTITLES_PASSWORD | RESTART_JELLYFIN | \
                 STORAGE | DOWNLOADS_SIZE)
@@ -97,9 +97,8 @@ ask_settings() {
 
     log "A few questions first"
 
-    ask NAS_SERVER "NAS address (IP or hostname)"
-    ask NAS_EXPORT "NFS export path on the NAS (UGOS shows it, e.g. /volume1/media)"
-    echo "Movies and series each get a folder in this share, and a library in Jellyfin."
+    ask_media_source
+    echo "Movies and series each get a folder in it, and a library in Jellyfin."
     ask MOVIES_FOLDER "Folder for movies" "movies"
     ask SERIES_FOLDER "Folder for series" "series"
     check_folders
@@ -151,6 +150,10 @@ check_writable() {
         dir="$MEDIA_MOUNT/$folder"
         [[ -d "$dir" ]] || dir="$MEDIA_MOUNT"
         if ! setpriv --reuid="$HOST_CONTAINER_UID" --regid="$HOST_CONTAINER_UID" --clear-groups touch "$dir/.homelab-write-test" 2>/dev/null; then
+            if media_is_local; then
+                dir="$(media_source)${dir#"$MEDIA_MOUNT"}"
+                die "containers can't write to $dir. Give them that folder with: chown -R $HOST_CONTAINER_UID:$HOST_CONTAINER_UID '$dir'"
+            fi
             die "containers can't write to ${dir#"$MEDIA_MOUNT"/}. On the NAS, give the NFS user write access to that folder: set squash to map all users to one NAS user with read/write access, and make sure that the folder itself allows writing"
         fi
         rm -f "$dir/.homelab-write-test"
@@ -193,7 +196,7 @@ on_exit() {
         pct destroy "$CREATED_CT" --purge 1 || true
     fi
     if [[ -n "${CREATED_MOUNT:-}" ]]; then
-        log "Removing the mount of the NAS share"
+        log "Removing the media mount"
         systemctl disable --now "$MEDIA_MOUNT_UNIT" >/dev/null 2>&1 || true
         rm -f "/etc/systemd/system/$MEDIA_MOUNT_UNIT"
         systemctl daemon-reload || true
