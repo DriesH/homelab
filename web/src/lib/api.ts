@@ -38,6 +38,20 @@ export type Overview = {
     agent: { connected: boolean; hostname?: string; version?: string }
 }
 
+export type Timeframe = 'hour' | 'day' | 'week' | 'month' | 'year'
+
+// One sample of the Proxmox statistics. A value is null when Proxmox has no data, like when a guest was stopped.
+export type UsagePoint = {
+    time: number
+    cpu: number | null
+    mem: number | null
+    maxMem: number | null
+    netIn: number | null
+    netOut: number | null
+}
+
+export type UsageTarget = { node: string; type?: Guest['type']; vmid?: number }
+
 export type Session = { username: string }
 
 export type GuestAction = 'start' | 'shutdown' | 'reboot' | 'stop'
@@ -451,6 +465,11 @@ export const api = {
     overview: () => request<Overview>('GET', '/overview'),
     guestAction: (guest: Guest, action: GuestAction) =>
         request<{ task: string }>('POST', `/guests/${guest.node}/${guest.type}/${guest.vmid}/${action}`),
+    usage: ({ node, type, vmid }: UsageTarget, timeframe: Timeframe) =>
+        request<{ points: UsagePoint[] }>(
+            'GET',
+            `/usage/${type ? `${node}/${type}/${vmid}` : node}?${new URLSearchParams({ timeframe })}`,
+        ),
     updates: () => request<Updates>('GET', '/updates'),
     updateRun: (id: string) => request<UpdateRun>('GET', `/updates/runs/${id}`),
     checkUpdates: () => request<void>('POST', '/updates/check'),

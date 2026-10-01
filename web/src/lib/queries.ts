@@ -1,6 +1,6 @@
-import { queryOptions } from '@tanstack/react-query'
+import { keepPreviousData, queryOptions } from '@tanstack/react-query'
 
-import { api } from '@/lib/api'
+import { api, type Timeframe, type UsageTarget } from '@/lib/api'
 
 export const sessionQuery = queryOptions({
     queryKey: ['session'],
@@ -14,6 +14,17 @@ export const overviewQuery = queryOptions({
     queryFn: api.overview,
     refetchInterval: 5000,
 })
+
+export function usageQuery(target: UsageTarget, timeframe: Timeframe) {
+    return queryOptions({
+        queryKey: ['usage', target.node, target.type, target.vmid, timeframe],
+        queryFn: () => api.usage(target, timeframe),
+        select: (data) => data.points,
+        // Proxmox adds a point every minute, and every 30 minutes or more for the longer timeframes.
+        refetchInterval: timeframe === 'hour' || timeframe === 'day' ? 60_000 : 30 * 60_000,
+        placeholderData: keepPreviousData,
+    })
+}
 
 export const updatesQuery = queryOptions({
     queryKey: ['updates'],

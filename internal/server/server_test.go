@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -35,6 +36,7 @@ const testSecret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
 
 type fakeProxmox struct {
 	actions []string
+	usage   []string
 }
 
 func (f *fakeProxmox) Resources(context.Context) ([]proxmox.Resource, error) {
@@ -53,6 +55,16 @@ func (f *fakeProxmox) NodeStatus(context.Context, string) (proxmox.NodeStatus, e
 func (f *fakeProxmox) RunGuestAction(_ context.Context, node string, guestType proxmox.GuestType, vmid int, action proxmox.GuestAction) (string, error) {
 	f.actions = append(f.actions, fmt.Sprintf("%s/%s/%d/%s", node, guestType, vmid, action))
 	return "UPID:1", nil
+}
+
+func (f *fakeProxmox) NodeUsage(_ context.Context, node string, timeframe proxmox.Timeframe) ([]proxmox.UsagePoint, error) {
+	f.usage = append(f.usage, fmt.Sprintf("%s/%s", node, timeframe))
+	return []proxmox.UsagePoint{{Time: 60}}, nil
+}
+
+func (f *fakeProxmox) GuestUsage(_ context.Context, node string, guestType proxmox.GuestType, vmid int, timeframe proxmox.Timeframe) ([]proxmox.UsagePoint, error) {
+	f.usage = append(f.usage, fmt.Sprintf("%s/%s/%d/%s", node, guestType, vmid, timeframe))
+	return []proxmox.UsagePoint{{Time: 60}}, nil
 }
 
 func (f *fakeProxmox) Tasks(context.Context, string, int) ([]proxmox.Task, error) {
@@ -228,6 +240,30 @@ func TestGuestActionValidatesInput(t *testing.T) {
 
 	if len(pve.actions) != 1 || pve.actions[0] != "pve/lxc/200/reboot" {
 		t.Fatalf("unexpected actions: %v", pve.actions)
+	}
+}
+
+func TestUsageValidatesInput(t *testing.T) {
+	server, pve := newTestServer(t)
+	cookie := login(t, server)
+
+	for _, path := range []string{"/api/usage/pve?timeframe=decade", "/api/usage/pve/lxc/200", "/api/usage/pve/disk/200?timeframe=hour", "/api/usage/pve/lxc/abc?timeframe=hour"} {
+		if response := request(t, http.MethodGet, server.URL+path, "", cookie); response.StatusCode != http.StatusBadRequest {
+			t.Errorf("expected 400 for %s, got %s", path, response.Status)
+		}
+	}
+
+	response := request(t, http.MethodGet, server.URL+"/api/usage/pve?timeframe=day", "", cookie)
+	body, _ := io.ReadAll(response.Body)
+	if response.StatusCode != http.StatusOK || !strings.Contains(string(body), `"points":[{"time":60`) {
+		t.Fatalf("unexpected node usage: %s %s", response.Status, body)
+	}
+	if response := request(t, http.MethodGet, server.URL+"/api/usage/pve/qemu/200?timeframe=week", "", cookie); response.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %s", response.Status)
+	}
+
+	if !slices.Equal(pve.usage, []string{"pve/day", "pve/qemu/200/week"}) {
+		t.Fatalf("unexpected usage calls: %v", pve.usage)
 	}
 }
 
