@@ -308,6 +308,7 @@ export type SavedAnswers = {
     answers: MediaStackAnswers
     hasJellyfinApiKey: boolean
     hasJellyfinAdminPassword: boolean
+    hasOpenSubtitlesPassword: boolean
     until: string
 }
 
@@ -353,6 +354,8 @@ export type MediaStackAnswers = {
     jellyfinApiKey: string
     jellyfinAdminUsername: string
     jellyfinAdminPassword: string
+    openSubtitlesUsername: string
+    openSubtitlesPassword: string
     restartJellyfin: boolean
     storage: string
     downloadsSize: number

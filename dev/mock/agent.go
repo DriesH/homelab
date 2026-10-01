@@ -164,6 +164,9 @@ func (f *fakeAgent) installApp(w http.ResponseWriter, r *http.Request) {
 		if answers.JellyfinAdminPassword == "" && answers.JellyfinAdminUsername == f.saved.JellyfinAdminUsername {
 			answers.JellyfinAdminPassword = f.saved.JellyfinAdminPassword
 		}
+		if answers.OpenSubtitlesPassword == "" && answers.OpenSubtitlesUsername == f.saved.OpenSubtitlesUsername {
+			answers.OpenSubtitlesPassword = f.saved.OpenSubtitlesPassword
+		}
 	}
 	f.mu.Unlock()
 	f.start(w, r.PathValue("app"), answers)
@@ -192,9 +195,11 @@ func (f *fakeAgent) savedAnswers(w http.ResponseWriter, r *http.Request) {
 	view := agent.SavedAnswers{
 		HasJellyfinAPIKey:        answers.JellyfinAPIKey != "",
 		HasJellyfinAdminPassword: answers.JellyfinAdminPassword != "",
+		HasOpenSubtitlesPassword: answers.OpenSubtitlesPassword != "",
 		Until:                    f.install.StartedAt.Add(agent.SavedAnswersTTL),
 	}
-	answers.WireGuardPrivateKey, answers.Password, answers.JellyfinAPIKey, answers.JellyfinAdminPassword = "", "", "", ""
+	answers.WireGuardPrivateKey, answers.Password, answers.JellyfinAPIKey = "", "", ""
+	answers.JellyfinAdminPassword, answers.OpenSubtitlesPassword = "", ""
 	view.Answers = answers
 	writeJSON(w, view)
 }

@@ -74,6 +74,8 @@ function MediaStackForm({
                 jellyfinApiKey: '',
                 jellyfinAdminUsername: '',
                 jellyfinAdminPassword: '',
+                openSubtitlesUsername: '',
+                openSubtitlesPassword: '',
                 restartJellyfin: true,
                 storage: defaults.storage,
                 downloadsSize: defaults.downloadsSize,
@@ -321,7 +323,10 @@ function MediaStackForm({
                         />
                     </Field>
                 </div>
-                <Field id="subtitles" label="Subtitle languages" help="2-letter codes, like en,nl.">
+            </Section>
+
+            <Section title="Subtitles" help="Bazarr adds subtitles to every new movie and episode.">
+                <Field id="subtitles" label="Languages" help="2-letter codes, like en,nl.">
                     <Input
                         id="subtitles"
                         value={answers.subtitleLanguages}
@@ -329,6 +334,49 @@ function MediaStackForm({
                         required
                     />
                 </Field>
+                <div className="grid gap-4 sm:grid-cols-2">
+                    <Field
+                        id="opensubtitles-username"
+                        label="OpenSubtitles.com username (optional)"
+                        help={
+                            <>
+                                Finds many more subtitles. Make a free account at{' '}
+                                <a
+                                    className="underline"
+                                    href="https://www.opensubtitles.com"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                >
+                                    opensubtitles.com
+                                </a>
+                                , not .org.
+                            </>
+                        }
+                    >
+                        <Input
+                            id="opensubtitles-username"
+                            autoComplete="off"
+                            value={answers.openSubtitlesUsername}
+                            onChange={(event) => set('openSubtitlesUsername', event.target.value.trim())}
+                        />
+                    </Field>
+                    <Field id="opensubtitles-password" label="OpenSubtitles.com password">
+                        <Input
+                            id="opensubtitles-password"
+                            type="password"
+                            autoComplete="off"
+                            value={answers.openSubtitlesPassword}
+                            onChange={(event) => set('openSubtitlesPassword', event.target.value)}
+                            placeholder={
+                                saved?.hasOpenSubtitlesPassword &&
+                                answers.openSubtitlesUsername === saved.answers.openSubtitlesUsername
+                                    ? keepSaved
+                                    : undefined
+                            }
+                            disabled={!answers.openSubtitlesUsername}
+                        />
+                    </Field>
+                </div>
             </Section>
 
             <DialogFooter>
