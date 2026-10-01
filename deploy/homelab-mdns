@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Announces the app names of Homelab, like seerr.homelab.local, at the IP of
+# this container over mDNS. Homelab forwards those names to the apps.
+set -euo pipefail
+
+ip="$(hostname -I | awk '{ print $1 }')"
+if [[ -z "$ip" ]]; then
+    echo "no IP address yet" >&2
+    exit 1
+fi
+
+for app in seerr jellyfin; do
+    avahi-publish -a -R "$app.$HOMELAB_HOSTNAME" "$ip" &
+done
+
+# When one stops, stop all, so systemd starts them again.
+wait -n
+exit 1

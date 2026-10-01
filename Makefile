@@ -19,7 +19,8 @@ build: web
 bundle: build
 	echo "$(VERSION)" >$(BUNDLE)/VERSION
 	install -m 0755 deploy/install.sh $(BUNDLE)/install.sh
-	install -m 0644 deploy/lib.sh deploy/homelab.service deploy/homelab-agent.service $(BUNDLE)/
+	install -m 0644 deploy/lib.sh deploy/homelab.service deploy/homelab-agent.service deploy/homelab-mdns.service $(BUNDLE)/
+	install -m 0755 deploy/homelab-mdns $(BUNDLE)/homelab-mdns
 	install -m 0755 deploy/stacks/arr/install.sh $(BUNDLE)/stacks/arr/install.sh
 	install -m 0644 deploy/stacks/arr/compose.yaml deploy/stacks/arr/recyclarr.yml $(BUNDLE)/stacks/arr/
 	# COPYFILE_DISABLE stops macOS tar from adding ._ files, which the agent refuses.

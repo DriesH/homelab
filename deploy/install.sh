@@ -62,7 +62,7 @@ done
 preflight() {
     require_proxmox
 
-    for file in VERSION homelab homelab-agent homelab.service homelab-agent.service; do
+    for file in VERSION homelab homelab-agent homelab.service homelab-agent.service homelab-mdns homelab-mdns.service; do
         [[ -f "$BUNDLE_DIR/$file" ]] || die "missing $file next to install.sh"
     done
 
@@ -185,6 +185,24 @@ install_scripts() {
     done
 }
 
+# ensure_app_names announces app names like seerr.homelab.local over mDNS,
+# at the IP of the manager, which forwards them. It is safe to run again.
+ensure_app_names() {
+    log "Announcing the app names on the LAN"
+    pct exec "$CT_ID" -- bash -euc '
+        export DEBIAN_FRONTEND=noninteractive
+        if ! command -v avahi-publish >/dev/null; then
+            apt-get update -q
+            apt-get install -y -q avahi-utils
+        fi
+    '
+    pct push "$CT_ID" "$BUNDLE_DIR/homelab-mdns" /usr/local/bin/homelab-mdns --perms 0755
+    pct push "$CT_ID" "$BUNDLE_DIR/homelab-mdns.service" /etc/systemd/system/homelab-mdns.service --perms 0644
+    pct exec "$CT_ID" -- systemctl daemon-reload
+    pct exec "$CT_ID" -- systemctl enable homelab-mdns
+    pct exec "$CT_ID" -- systemctl restart homelab-mdns
+}
+
 # ensure_tailscale installs Tailscale in the manager container and lets the
 # manager's user run it. It is safe to run again.
 ensure_tailscale() {
@@ -298,6 +316,8 @@ upgrade() {
 
     # Older installs have no Tailscale yet. Without it, only the Tailscale page doesn't work.
     ensure_tailscale || log "Could not install Tailscale, continuing without it"
+    # Older installs have no app names yet. Without them, only seerr.homelab.local and the like don't work.
+    ensure_app_names || log "Could not announce the app names, continuing without them"
 
     log "Installing the new version"
     UPGRADE_STEP="replaced"
@@ -558,6 +578,7 @@ main() {
     create_container
     setup_container
     ensure_tailscale
+    ensure_app_names
     create_admin
     install_scripts
 

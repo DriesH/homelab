@@ -1,0 +1,15 @@
+[Unit]
+Description=Homelab app names on the LAN (mDNS)
+Requires=avahi-daemon.service
+After=avahi-daemon.service network-online.target
+Wants=network-online.target
+
+[Service]
+User=homelab
+EnvironmentFile=/etc/homelab/homelab.env
+ExecStart=/usr/local/bin/homelab-mdns
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
