@@ -178,6 +178,10 @@ install_scripts() {
         install -m 0755 "$BUNDLE_DIR/stacks/arr/install.sh" "$BUNDLE_DIR/stacks/arr/homelab-arr" "$SCRIPTS_DIR/stacks/arr/"
         install -m 0644 "$BUNDLE_DIR/stacks/arr/compose.yaml" "$BUNDLE_DIR/stacks/arr/recyclarr.yml" "$SCRIPTS_DIR/stacks/arr/"
     fi
+    if [[ -d "$BUNDLE_DIR/stacks/jellyfin" ]]; then
+        install -d -m 0755 "$SCRIPTS_DIR/stacks/jellyfin"
+        install -m 0755 "$BUNDLE_DIR/stacks/jellyfin/install.sh" "$BUNDLE_DIR/stacks/jellyfin/homelab-jellyfin" "$SCRIPTS_DIR/stacks/jellyfin/"
+    fi
     local command
     for command in restore uninstall; do
         printf '#!/bin/sh\nexec %s/install.sh --%s "$@"\n' "$SCRIPTS_DIR" "$command" >"/usr/local/sbin/homelab-$command"
