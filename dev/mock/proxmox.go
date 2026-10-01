@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"slices"
@@ -196,6 +198,8 @@ func (p *fakeProxmox) node(w http.ResponseWriter, r *http.Request) {
 		writeData(w, "UPID:pve:"+parts[len(parts)-1])
 	case r.Method == http.MethodPost && strings.Contains(path, "/status/"):
 		writeData(w, "UPID:pve:action")
+	case path == "rrddata" || strings.HasSuffix(path, "/rrddata"):
+		writeData(w, fakeUsage(parts, r.URL.Query().Get("timeframe")))
 	case path == "disks/list":
 		writeData(w, []map[string]any{
 			{"devpath": "/dev/nvme0n1", "model": "Samsung SSD 990 PRO 1TB", "serial": "S6Z1", "size": 1_000_204_886_016, "type": "nvme", "health": "PASSED", "wearout": 4, "used": "LVM"},
@@ -227,4 +231,49 @@ func (p *fakeProxmox) node(w http.ResponseWriter, r *http.Request) {
 		log.Println("fake proxmox: no answer for", r.Method, path)
 		http.NotFound(w, r)
 	}
+}
+
+// fakeUsage makes smooth, slightly noisy RRD rows like Proxmox VE 9 returns them.
+func fakeUsage(parts []string, timeframe string) []map[string]any {
+	setup, ok := map[string]struct{ step, count int64 }{
+		"hour": {60, 60}, "day": {60, 1440}, "week": {1800, 336}, "month": {1800, 1440}, "year": {21600, 1440},
+	}[timeframe]
+	step, count := setup.step, setup.count
+	if !ok {
+		return []map[string]any{}
+	}
+
+	isNode := parts[0] == "rrddata"
+	vmid := int64(0)
+	if !isNode {
+		fmt.Sscan(parts[1], &vmid)
+	}
+	maxMem := 34_359_738_368.0
+	if !isNode {
+		maxMem = 4_294_967_296
+	}
+
+	start := time.Now().Unix()/step*step - step*count
+	rows := make([]map[string]any, 0, count)
+	for i := range count {
+		at := start + i*step
+		row := map[string]any{"time": at}
+		// The stopped VM has no data, and the newest row is still empty, like in Proxmox.
+		if vmid != 200 && i < count-1 {
+			// Seven waves in every timeframe, so a long timeframe looks as smooth as a short one.
+			wave := 0.5 + 0.5*math.Sin(float64(i)*14*math.Pi/float64(count)+float64(vmid))
+			noise := rand.Float64()
+			row["cpu"] = 0.03 + 0.25*wave*wave + 0.05*noise
+			row["netin"] = 40_000 + 2_500_000*wave*noise
+			row["netout"] = 15_000 + 600_000*wave*rand.Float64()
+			if isNode {
+				row["memused"], row["memtotal"] = maxMem*(0.28+0.06*wave), maxMem
+			} else {
+				row["mem"], row["maxmem"] = maxMem*(0.3+0.1*wave), maxMem
+			}
+		}
+		rows = append(rows, row)
+	}
+
+	return rows
 }
