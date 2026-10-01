@@ -4,6 +4,8 @@ Prowlarr, Radarr, Sonarr, Bazarr, qBittorrent, Seerr, Recyclarr and FlareSolverr
 
 ## Before you start
 
+Install Jellyfin first, from the Apps page or in another way: the installer of the media stack finds a container named `jellyfin` and connects it. See [jellyfin.md](jellyfin.md).
+
 1. On the UGREEN NAS, turn on NFS: Control Panel > File Services > NFS.
 2. Add an NFS permission rule to the media share for the IP of the Proxmox host: Read/Write, and squash "Map all users to admin".
 3. Make sure that the movies and series folders allow writing over NFS. The installer checks this and names the folder that fails. NFS only looks at the folder permissions on the NAS disk, not at the share permissions for SMB users.

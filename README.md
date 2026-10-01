@@ -51,7 +51,7 @@ Open http://localhost:5173 and log in with `admin` / `homelab-dev-password`. See
 - [Health and alerts](docs/health.md)
 - [Backups and restoring the manager](docs/backups.md)
 - [Logs and console](docs/logs-and-console.md)
-- [Jellyfin](docs/jellyfin.md)
+- [Jellyfin: install and the Jellyfin page](docs/jellyfin.md)
 - [Tailscale](docs/tailscale.md)
 - [App names (seerr.homelab.local)](docs/app-names.md)
 - [Media stack](docs/media-stack.md)
