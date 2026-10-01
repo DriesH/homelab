@@ -228,6 +228,37 @@ func (c *Client) RetryApp(ctx context.Context, app string) error {
 	return c.do(ctx, http.MethodPost, "/v1/apps/"+url.PathEscape(app)+"/retry", nil, nil)
 }
 
+// AppContainerRequest names the container of an app to update or remove.
+type AppContainerRequest struct {
+	VMID int `json:"vmid"`
+}
+
+func (c *Client) UpdateApp(ctx context.Context, app string, vmid int) error {
+	return c.do(ctx, http.MethodPost, "/v1/apps/"+url.PathEscape(app)+"/update", AppContainerRequest{VMID: vmid}, nil)
+}
+
+func (c *Client) RemoveApp(ctx context.Context, app string, vmid int) error {
+	return c.do(ctx, http.MethodPost, "/v1/apps/"+url.PathEscape(app)+"/remove", AppContainerRequest{VMID: vmid}, nil)
+}
+
+// VPNRequest gives the media stack in container VMID new VPN settings.
+type VPNRequest struct {
+	VMID int `json:"vmid"`
+	VPNSettings
+}
+
+// VPNCountries returns the VPN countries of the media stack in container vmid.
+func (c *Client) VPNCountries(ctx context.Context, vmid int) (string, error) {
+	var settings VPNSettings
+	err := c.do(ctx, http.MethodGet, "/v1/apps/media/vpn?vmid="+strconv.Itoa(vmid), nil, &settings)
+
+	return settings.Countries, err
+}
+
+func (c *Client) ChangeVPN(ctx context.Context, vmid int, settings VPNSettings) error {
+	return c.do(ctx, http.MethodPut, "/v1/apps/media/vpn", VPNRequest{VMID: vmid, VPNSettings: settings}, nil)
+}
+
 // SavedAppAnswers returns the answers of the last failed install without secrets, or nil.
 func (c *Client) SavedAppAnswers(ctx context.Context, app string) (*SavedAnswers, error) {
 	var saved *SavedAnswers
