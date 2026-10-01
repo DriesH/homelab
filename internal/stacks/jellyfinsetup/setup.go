@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"homelab/internal/jellyfin"
@@ -37,7 +38,7 @@ type Config struct {
 	Logf  func(format string, args ...any)
 	// HTTP is replaced in tests.
 	HTTP *http.Client
-	// Wait is how long to wait for Jellyfin to start.
+	// Wait is how long to wait for Jellyfin to start, also when it restarts during the setup.
 	Wait time.Duration
 }
 
@@ -45,7 +46,11 @@ type server struct {
 	baseURL string
 	token   string
 	http    *http.Client
+	wait    time.Duration
 }
+
+// retryEvery is the pause between two tries while Jellyfin starts.
+var retryEvery = 2 * time.Second
 
 // Setup returns an API key for Homelab. It skips the startup wizard when it
 // was already done, so it is safe to run again.
@@ -56,7 +61,7 @@ func Setup(ctx context.Context, cfg Config) (string, error) {
 	if cfg.Wait == 0 {
 		cfg.Wait = 3 * time.Minute
 	}
-	jf := &server{baseURL: strings.TrimRight(cfg.URL, "/"), http: cfg.HTTP}
+	jf := &server{baseURL: strings.TrimRight(cfg.URL, "/"), http: cfg.HTTP, wait: cfg.Wait}
 
 	cfg.Logf("Waiting for Jellyfin to start")
 	info, err := jf.waitForStart(ctx, cfg.Wait)
@@ -125,7 +130,7 @@ func (s *server) waitForStart(ctx context.Context, wait time.Duration) (publicIn
 		select {
 		case <-ctx.Done():
 			return publicInfo{}, ctx.Err()
-		case <-time.After(2 * time.Second):
+		case <-time.After(retryEvery):
 		}
 	}
 }
@@ -239,13 +244,47 @@ func (s *server) apiKey(ctx context.Context) (string, error) {
 	return key, err
 }
 
+// do sends a request. While Jellyfin (re)starts, it refuses connections or
+// answers 503, and then do tries again until s.wait is over. Jellyfin did
+// not handle such a request, so a second try is safe.
 func (s *server) do(ctx context.Context, method, path string, body, out any) error {
-	var reader io.Reader
+	var data []byte
 	if body != nil {
-		data, err := json.Marshal(body)
-		if err != nil {
+		var err error
+		if data, err = json.Marshal(body); err != nil {
 			return err
 		}
+	}
+
+	deadline := time.Now().Add(s.wait)
+	for {
+		err := s.send(ctx, method, path, data, out)
+		if !starting(err) || time.Now().After(deadline) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(retryEvery):
+		}
+	}
+}
+
+type statusError struct {
+	status  int
+	message string
+}
+
+func (e *statusError) Error() string { return e.message }
+
+func starting(err error) bool {
+	var status *statusError
+	return errors.Is(err, syscall.ECONNREFUSED) || (errors.As(err, &status) && status.status == http.StatusServiceUnavailable)
+}
+
+func (s *server) send(ctx context.Context, method, path string, data []byte, out any) error {
+	var reader io.Reader
+	if data != nil {
 		reader = bytes.NewReader(data)
 	}
 
@@ -258,7 +297,7 @@ func (s *server) do(ctx context.Context, method, path string, body, out any) err
 		auth += `, Token="` + s.token + `"`
 	}
 	request.Header.Set("Authorization", auth)
-	if body != nil {
+	if data != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
 
@@ -270,7 +309,10 @@ func (s *server) do(ctx context.Context, method, path string, body, out any) err
 
 	if response.StatusCode >= 300 {
 		message, _ := io.ReadAll(io.LimitReader(response.Body, 1024))
-		return fmt.Errorf("%s %s: HTTP %d %s", method, path, response.StatusCode, strings.TrimSpace(string(message)))
+		return &statusError{
+			status:  response.StatusCode,
+			message: fmt.Sprintf("%s %s: HTTP %d %s", method, path, response.StatusCode, strings.TrimSpace(string(message))),
+		}
 	}
 	if out == nil {
 		return nil
