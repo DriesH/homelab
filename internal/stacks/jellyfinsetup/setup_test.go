@@ -3,11 +3,16 @@ package jellyfinsetup
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -159,5 +164,60 @@ func TestSetupWrongPasswordOnDoneWizard(t *testing.T) {
 
 	if _, err := Setup(context.Background(), testConfig(server.URL)); err == nil || !strings.Contains(err.Error(), "log in as dries") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// restartingTransport plays a Jellyfin that restarts right after it first
+// answers: it refuses connections, then answers 503, then works.
+type restartingTransport struct {
+	mu      sync.Mutex
+	answers int
+	refused int
+	busy    int
+}
+
+func (t *restartingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.answers > 0 {
+		switch {
+		case t.refused > 0:
+			t.refused--
+			return nil, &net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}
+		case t.busy > 0:
+			t.busy--
+			return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: io.NopCloser(strings.NewReader("starting")), Request: request}, nil
+		}
+	}
+	t.answers++
+
+	return http.DefaultTransport.RoundTrip(request)
+}
+
+func TestSetupWaitsWhileJellyfinRestarts(t *testing.T) {
+	defer func(previous time.Duration) { retryEvery = previous }(retryEvery)
+	retryEvery = 10 * time.Millisecond
+
+	fake := &fakeJellyfin{encoding: map[string]any{}}
+	server := httptest.NewServer(fake)
+	defer server.Close()
+
+	config := testConfig(server.URL)
+	config.HTTP = &http.Client{Transport: &restartingTransport{refused: 3, busy: 2}}
+	if _, err := Setup(context.Background(), config); err != nil {
+		t.Fatal(err)
+	}
+	if !fake.completed {
+		t.Fatal("the wizard was not finished")
+	}
+
+	// Jellyfin that stays down still fails, after the wait.
+	config.HTTP = &http.Client{Transport: &restartingTransport{refused: 1000}}
+	config.Wait = 50 * time.Millisecond
+	fake.completed = false
+	_, err := Setup(context.Background(), config)
+	if !errors.Is(err, syscall.ECONNREFUSED) {
+		t.Fatalf("got %v, want connection refused", err)
 	}
 }
