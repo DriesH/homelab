@@ -198,3 +198,67 @@ func waitFor(t *testing.T, done func() bool) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+func TestUseTagLogsInAgainWithTheTag(t *testing.T) {
+	cli := &fakeCLI{outputs: map[string]string{}, errs: map[string]error{}}
+	service := newTestService(t, cli)
+
+	if err := service.UseTag(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return cli.called("up") != nil })
+
+	call := strings.Join(cli.called("up"), " ")
+	if !strings.Contains(call, "--advertise-tags=tag:homelab") || !strings.Contains(call, "--force-reauth") {
+		t.Fatalf("up = %s", call)
+	}
+
+	// Saving the subnet keeps the tag.
+	if err := service.SaveSettings(context.Background(), Settings{ShareSubnet: false}); err != nil {
+		t.Fatal(err)
+	}
+	if !service.Status(context.Background()).Settings.UseTag {
+		t.Fatal("saving the settings dropped the tag")
+	}
+}
+
+func TestServices(t *testing.T) {
+	tagged := strings.Replace(runningStatus, `"PrimaryRoutes": ["192.168.1.0/24"]`, `"PrimaryRoutes": [], "Tags": ["tag:homelab"]`, 1)
+	cli := &fakeCLI{outputs: map[string]string{
+		"status --json": tagged,
+		"serve status":  `{"Services": {"svc:seerr": {"TCP": {"443": {"HTTPS": true}}}}}`,
+	}, errs: map[string]error{}}
+	service := newTestService(t, cli)
+	service.Services = []AppService{
+		{Name: "seerr", Title: "Seerr", Backend: "http://127.0.0.1:18081"},
+		{Name: "jellyfin", Title: "Jellyfin", Backend: "http://127.0.0.1:18082"},
+	}
+
+	view := service.Status(context.Background())
+	if len(view.Tags) != 1 || view.Tags[0] != "tag:homelab" {
+		t.Fatalf("tags = %v", view.Tags)
+	}
+	if len(view.Services) != 2 || !view.Services[0].Published || view.Services[0].URL != "https://seerr.tail1234.ts.net" || view.Services[1].Published {
+		t.Fatalf("services = %+v", view.Services)
+	}
+	// A Service is not the manager itself.
+	if view.Serving {
+		t.Fatal("a Service counted as serving the manager")
+	}
+
+	if err := service.SetService(context.Background(), "jellyfin", true); err != nil {
+		t.Fatal(err)
+	}
+	if call := strings.Join(cli.called("serve --service"), " "); call != "serve --service=svc:jellyfin --https=443 --yes http://127.0.0.1:18082" {
+		t.Fatalf("publish = %q", call)
+	}
+	if err := service.SetService(context.Background(), "seerr", false); err != nil {
+		t.Fatal(err)
+	}
+	if call := strings.Join(cli.called("serve clear"), " "); call != "serve clear svc:seerr" {
+		t.Fatalf("remove = %q", call)
+	}
+	if err := service.SetService(context.Background(), "radarr", true); !errors.Is(err, ErrInvalidSettings) {
+		t.Fatalf("unknown app: %v", err)
+	}
+}

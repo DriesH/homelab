@@ -2,8 +2,9 @@
 //
 //	homelab-arr configure --env /opt/arr/.env < passwords
 //
-// The first line on stdin is the password for the apps. An optional second
-// line is the password of the Jellyfin admin, for the setup of Seerr.
+// The first line on stdin is the password for the apps. Optional next lines
+// are the password of the Jellyfin admin, for the setup of Seerr, and the
+// password of the OpenSubtitles.com account, for Bazarr.
 package main
 
 import (
@@ -54,6 +55,8 @@ func configure(args []string) error {
 	password = strings.TrimRight(password, "\r\n")
 	jellyfinAdminPassword, _ := stdin.ReadString('\n')
 	jellyfinAdminPassword = strings.TrimRight(jellyfinAdminPassword, "\r\n")
+	openSubtitlesPassword, _ := stdin.ReadString('\n')
+	openSubtitlesPassword = strings.TrimRight(openSubtitlesPassword, "\r\n")
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -69,6 +72,8 @@ func configure(args []string) error {
 		JellyfinAPIKey:        env["JELLYFIN_API_KEY"],
 		JellyfinAdminUsername: env["JELLYFIN_ADMIN_USERNAME"],
 		JellyfinAdminPassword: jellyfinAdminPassword,
+		OpenSubtitlesUsername: env["OPENSUBTITLES_USERNAME"],
+		OpenSubtitlesPassword: openSubtitlesPassword,
 		SubtitleLanguages:     strings.Split(env["SUBTITLE_LANGUAGES"], ","),
 		MoviesFolder:          env["MOVIES_FOLDER"],
 		SeriesFolder:          env["SERIES_FOLDER"],

@@ -84,7 +84,14 @@ function AppCard({ app, defaults }: { app: CatalogApp; defaults: Apps['defaults'
                         <Badge variant={app.status === 'running' ? 'secondary' : 'outline'}>{app.status}</Badge>
                     )}
                 </CardTitle>
-                <CardDescription>{app.description}</CardDescription>
+                <CardDescription className="flex flex-col gap-1">
+                    <span>{app.description}</span>
+                    {app.hostUrl && (
+                        <a href={app.hostUrl} target="_blank" rel="noreferrer" className="w-fit underline">
+                            {app.hostUrl.replace('https://', '')}
+                        </a>
+                    )}
+                </CardDescription>
                 {!app.installed && !running && (
                     <CardAction className="flex flex-wrap justify-end gap-2">
                         {saved ? (
@@ -145,7 +152,7 @@ function AppCard({ app, defaults }: { app: CatalogApp; defaults: Apps['defaults'
                         </li>
                     ))}
                 </ul>
-                {app.installed && (
+                {app.installed && app.id === 'media' && (
                     <p className="text-xs text-muted-foreground">
                         Log in to Seerr with your Jellyfin account. If you gave no Jellyfin admin during the install,
                         finish the setup of Seerr first: until then, anyone on your network can open it. Log in to the

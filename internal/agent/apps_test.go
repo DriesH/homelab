@@ -23,6 +23,8 @@ func validAnswers() MediaStackAnswers {
 		JellyfinAPIKey:        "0123456789abcdef0123456789abcdef",
 		JellyfinAdminUsername: "Dries H",
 		JellyfinAdminPassword: "jelly pass",
+		OpenSubtitlesUsername: "dries_h",
+		OpenSubtitlesPassword: "subs pass",
 		RestartJellyfin:       true,
 		Storage:               "local-lvm",
 		DownloadsSize:         200,
@@ -35,26 +37,28 @@ func TestMediaStackAnswersValidate(t *testing.T) {
 	}
 
 	for name, change := range map[string]func(*MediaStackAnswers){
-		"NAS with space":         func(a *MediaStackAnswers) { a.NASServer = "nas local" },
-		"export not absolute":    func(a *MediaStackAnswers) { a.NASExport = "volume1" },
-		"export with newline":    func(a *MediaStackAnswers) { a.NASExport = "/media\nARR_PASSWORD=x" },
-		"short key":              func(a *MediaStackAnswers) { a.WireGuardPrivateKey = "abc=" },
-		"folder with slash":      func(a *MediaStackAnswers) { a.MoviesFolder = "media/movies" },
-		"folder up":              func(a *MediaStackAnswers) { a.SeriesFolder = ".." },
-		"folder newline":         func(a *MediaStackAnswers) { a.MoviesFolder = "movies\nARR_PASSWORD=x" },
-		"same folders":           func(a *MediaStackAnswers) { a.SeriesFolder = "Movies" },
-		"empty folder":           func(a *MediaStackAnswers) { a.MoviesFolder = "" },
-		"admin without password": func(a *MediaStackAnswers) { a.JellyfinAdminPassword = "" },
-		"admin password newline": func(a *MediaStackAnswers) { a.JellyfinAdminPassword = "a\nARR_PASSWORD=x" },
-		"admin name with slash":  func(a *MediaStackAnswers) { a.JellyfinAdminUsername = "a/b" },
-		"country with digits":    func(a *MediaStackAnswers) { a.VPNCountries = "NL1" },
-		"language too long":      func(a *MediaStackAnswers) { a.SubtitleLanguages = "eng" },
-		"username with space":    func(a *MediaStackAnswers) { a.Username = "my user" },
-		"short password":         func(a *MediaStackAnswers) { a.Password = "short" },
-		"password newline":       func(a *MediaStackAnswers) { a.Password = "correct horse\nbattery" },
-		"bad api key":            func(a *MediaStackAnswers) { a.JellyfinAPIKey = "not-a-key" },
-		"bad storage":            func(a *MediaStackAnswers) { a.Storage = "a;b" },
-		"tiny downloads":         func(a *MediaStackAnswers) { a.DownloadsSize = 1 },
+		"NAS with space":             func(a *MediaStackAnswers) { a.NASServer = "nas local" },
+		"export not absolute":        func(a *MediaStackAnswers) { a.NASExport = "volume1" },
+		"export with newline":        func(a *MediaStackAnswers) { a.NASExport = "/media\nARR_PASSWORD=x" },
+		"short key":                  func(a *MediaStackAnswers) { a.WireGuardPrivateKey = "abc=" },
+		"folder with slash":          func(a *MediaStackAnswers) { a.MoviesFolder = "media/movies" },
+		"folder up":                  func(a *MediaStackAnswers) { a.SeriesFolder = ".." },
+		"folder newline":             func(a *MediaStackAnswers) { a.MoviesFolder = "movies\nARR_PASSWORD=x" },
+		"same folders":               func(a *MediaStackAnswers) { a.SeriesFolder = "Movies" },
+		"empty folder":               func(a *MediaStackAnswers) { a.MoviesFolder = "" },
+		"admin without password":     func(a *MediaStackAnswers) { a.JellyfinAdminPassword = "" },
+		"admin password newline":     func(a *MediaStackAnswers) { a.JellyfinAdminPassword = "a\nARR_PASSWORD=x" },
+		"admin name with slash":      func(a *MediaStackAnswers) { a.JellyfinAdminUsername = "a/b" },
+		"subtitles without password": func(a *MediaStackAnswers) { a.OpenSubtitlesPassword = "" },
+		"subtitles name with space":  func(a *MediaStackAnswers) { a.OpenSubtitlesUsername = "dries h" },
+		"country with digits":        func(a *MediaStackAnswers) { a.VPNCountries = "NL1" },
+		"language too long":          func(a *MediaStackAnswers) { a.SubtitleLanguages = "eng" },
+		"username with space":        func(a *MediaStackAnswers) { a.Username = "my user" },
+		"short password":             func(a *MediaStackAnswers) { a.Password = "short" },
+		"password newline":           func(a *MediaStackAnswers) { a.Password = "correct horse\nbattery" },
+		"bad api key":                func(a *MediaStackAnswers) { a.JellyfinAPIKey = "not-a-key" },
+		"bad storage":                func(a *MediaStackAnswers) { a.Storage = "a;b" },
+		"tiny downloads":             func(a *MediaStackAnswers) { a.DownloadsSize = 1 },
 	} {
 		answers := validAnswers()
 		change(&answers)
@@ -195,7 +199,7 @@ func TestAppRetryUsesTheSavedAnswers(t *testing.T) {
 	if err != nil || saved == nil {
 		t.Fatalf("saved = %v, err = %v", saved, err)
 	}
-	if saved.Answers.WireGuardPrivateKey != "" || saved.Answers.Password != "" || saved.Answers.JellyfinAPIKey != "" || saved.Answers.JellyfinAdminPassword != "" {
+	if saved.Answers.WireGuardPrivateKey != "" || saved.Answers.Password != "" || saved.Answers.JellyfinAPIKey != "" || saved.Answers.JellyfinAdminPassword != "" || saved.Answers.OpenSubtitlesPassword != "" || !saved.HasOpenSubtitlesPassword {
 		t.Fatalf("the view has secrets: %+v", saved.Answers)
 	}
 	if saved.Answers.NASServer != "192.168.1.5" || !saved.HasJellyfinAPIKey || !saved.HasJellyfinAdminPassword || saved.Answers.JellyfinAdminUsername != "Dries H" || !saved.Until.Equal(now.Add(SavedAnswersTTL)) {
@@ -222,7 +226,7 @@ func TestAppRetryUsesTheSavedAnswers(t *testing.T) {
 		t.Fatal(err)
 	}
 	answers, _ = os.ReadFile(unit.started[len(unit.started)-1])
-	for _, line := range []string{"NAS_EXPORT=/volume1/Media\n", "ARR_PASSWORD=correct horse battery\n", "JELLYFIN_ADMIN_PASSWORD=jelly pass\n", "WIREGUARD_PRIVATE_KEY=" + validAnswers().WireGuardPrivateKey + "\n"} {
+	for _, line := range []string{"NAS_EXPORT=/volume1/Media\n", "ARR_PASSWORD=correct horse battery\n", "JELLYFIN_ADMIN_PASSWORD=jelly pass\n", "OPENSUBTITLES_PASSWORD=subs pass\n", "WIREGUARD_PRIVATE_KEY=" + validAnswers().WireGuardPrivateKey + "\n"} {
 		if !strings.Contains(string(answers), line) {
 			t.Fatalf("answers miss %q:\n%s", line, answers)
 		}
@@ -282,5 +286,108 @@ func TestSavedAdminPasswordOnlyForTheSameAdmin(t *testing.T) {
 	changed.JellyfinAdminUsername = "someone else"
 	if err := installer.Install(MediaStackApp, InstallRequest{MediaStackAnswers: changed, KeepSecrets: true}); !errors.Is(err, ErrInvalidAnswers) {
 		t.Fatalf("a new admin got the old password: %v", err)
+	}
+}
+
+func validJellyfin() JellyfinAnswers {
+	return JellyfinAnswers{
+		NASServer: "192.168.1.5", NASExport: "/volume1/media",
+		MoviesFolder: "movies", SeriesFolder: "series",
+		AdminUsername: "dries", AdminPassword: "jelly pass", Theme: true, Storage: "local-lvm",
+	}
+}
+
+func TestJellyfinAnswersValidate(t *testing.T) {
+	if err := validJellyfin().Validate(); err != nil {
+		t.Fatal(err)
+	}
+	mounted := validJellyfin()
+	mounted.NASServer, mounted.NASExport = "", ""
+	if err := mounted.Validate(); err != nil {
+		t.Fatalf("an already mounted share: %v", err)
+	}
+
+	for name, change := range map[string]func(*JellyfinAnswers){
+		"only the NAS address": func(a *JellyfinAnswers) { a.NASExport = "" },
+		"no admin":             func(a *JellyfinAnswers) { a.AdminUsername = "" },
+		"no password":          func(a *JellyfinAnswers) { a.AdminPassword = "" },
+		"password newline":     func(a *JellyfinAnswers) { a.AdminPassword = "a\nTHEME=y" },
+		"same folders":         func(a *JellyfinAnswers) { a.SeriesFolder = "Movies" },
+		"bad storage":          func(a *JellyfinAnswers) { a.Storage = "a b" },
+	} {
+		answers := validJellyfin()
+		change(&answers)
+		if err := answers.Validate(); !errors.Is(err, ErrInvalidAnswers) {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+}
+
+func TestJellyfinInstall(t *testing.T) {
+	installer, unit := newTestInstaller(t)
+	if err := os.MkdirAll(filepath.Join(installer.StacksDir, "jellyfin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(installer.StacksDir, "jellyfin", "install.sh"), nil, 0o755)
+
+	if err := installer.Install(JellyfinApp, InstallRequest{Jellyfin: validJellyfin()}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(unit.started[0], "/jellyfin/install.sh") {
+		t.Fatalf("script = %s", unit.started[0])
+	}
+	answers, _ := os.ReadFile(unit.started[1])
+	for _, line := range []string{"JELLYFIN_ADMIN_PASSWORD=jelly pass\n", "THEME=y\n", "SERIES_FOLDER=series\n"} {
+		if !strings.Contains(string(answers), line) {
+			t.Errorf("answers miss %q:\n%s", line, answers)
+		}
+	}
+
+	// While it runs or after a failure, the key never shows.
+	log := "==> Setting up Jellyfin\nHOMELAB jellyfin-key 0123456789abcdef0123456789abcdef\n==> Done\nHOMELAB app jellyfin 140 192.168.1.60\n"
+	os.WriteFile(installer.logPath(), []byte(log), 0o600)
+	if status := installer.Status(); status.APIKey != "" || strings.Contains(status.Log, "jellyfin-key") {
+		t.Fatalf("running status = %+v", status)
+	}
+
+	os.WriteFile(installer.exitPath(), []byte("0\n"), 0o600)
+	unit.running = false
+	status := installer.Status()
+	if status.State != UpgradeSucceeded || status.APIKey != "0123456789abcdef0123456789abcdef" || status.IP != "192.168.1.60" {
+		t.Fatalf("done status = %+v", status)
+	}
+	if strings.Contains(status.Log, "jellyfin-key") || !strings.Contains(status.Log, "==> Done") {
+		t.Fatalf("the key is in the log:\n%s", status.Log)
+	}
+}
+
+func TestJellyfinRetryKeepsTheAdminPassword(t *testing.T) {
+	installer, unit := newTestInstaller(t)
+	os.MkdirAll(filepath.Join(installer.StacksDir, "jellyfin"), 0o755)
+	os.WriteFile(filepath.Join(installer.StacksDir, "jellyfin", "install.sh"), nil, 0o755)
+
+	if err := installer.Install(JellyfinApp, InstallRequest{Jellyfin: validJellyfin()}); err != nil {
+		t.Fatal(err)
+	}
+	unit.running = false
+
+	saved, err := installer.Saved(JellyfinApp)
+	if err != nil || saved == nil || saved.Jellyfin.AdminPassword != "" || !saved.HasJellyfinAdminPassword || saved.Jellyfin.AdminUsername != "dries" {
+		t.Fatalf("saved = %+v, err = %v", saved, err)
+	}
+
+	changed := saved.Jellyfin
+	changed.Theme = false
+	if err := installer.Install(JellyfinApp, InstallRequest{Jellyfin: changed, KeepSecrets: true}); err != nil {
+		t.Fatal(err)
+	}
+	answers, _ := os.ReadFile(unit.started[len(unit.started)-1])
+	if !strings.Contains(string(answers), "JELLYFIN_ADMIN_PASSWORD=jelly pass\n") || !strings.Contains(string(answers), "THEME=n\n") {
+		t.Fatalf("answers:\n%s", answers)
+	}
+	unit.running = false
+
+	if err := installer.Retry(JellyfinApp); err != nil {
+		t.Fatal(err)
 	}
 }

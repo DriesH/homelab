@@ -24,6 +24,7 @@ const (
 	appUnit       = "homelab-app-install"
 	maxAppLog     = 64 * 1024
 	MediaStackApp = "media"
+	JellyfinApp   = "jellyfin"
 	// SavedAnswersTTL is how long the answers of a failed install stay on the
 	// host, so you can try again without typing the secrets again.
 	SavedAnswersTTL = 24 * time.Hour
@@ -47,6 +48,9 @@ var (
 	jellyfinUserPattern = regexp.MustCompile(`^[A-Za-z0-9._@-]([A-Za-z0-9 ._@-]{0,62}[A-Za-z0-9._@-])?$`)
 	ansiPattern         = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 	appResultPattern    = regexp.MustCompile(`(?m)^HOMELAB app (\w+) (\d+) (\S+)$`)
+	// The Jellyfin installer prints the API key it made for Homelab. The
+	// agent takes it out of the log, so the browser never sees it.
+	jellyfinKeyPattern = regexp.MustCompile(`(?m)^HOMELAB jellyfin-key ([A-Za-z0-9]+)\n?`)
 )
 
 // MediaStackAnswers are the questions of stacks/arr/install.sh. Every value
@@ -68,6 +72,10 @@ type MediaStackAnswers struct {
 	// the installer also does the setup of Seerr.
 	JellyfinAdminUsername string `json:"jellyfinAdminUsername"`
 	JellyfinAdminPassword string `json:"jellyfinAdminPassword"`
+	// OpenSubtitlesUsername and OpenSubtitlesPassword are optional. With them,
+	// Bazarr also uses OpenSubtitles.com.
+	OpenSubtitlesUsername string `json:"openSubtitlesUsername"`
+	OpenSubtitlesPassword string `json:"openSubtitlesPassword"`
 	RestartJellyfin       bool   `json:"restartJellyfin"`
 	Storage               string `json:"storage"`
 	// DownloadsSize is the size of the downloads disk in GB.
@@ -104,6 +112,12 @@ func (a MediaStackAnswers) Validate() error {
 		return invalid("give both the Jellyfin admin username and password, or neither")
 	case len(a.JellyfinAdminPassword) > 256 || strings.ContainsFunc(a.JellyfinAdminPassword, unicode.IsControl):
 		return invalid("the Jellyfin admin password can't have line breaks")
+	case a.OpenSubtitlesUsername != "" && !usernamePattern.MatchString(a.OpenSubtitlesUsername):
+		return invalid("the OpenSubtitles.com username can have letters, digits, dots, dashes and underscores")
+	case (a.OpenSubtitlesUsername == "") != (a.OpenSubtitlesPassword == ""):
+		return invalid("give both the OpenSubtitles.com username and password, or neither")
+	case len(a.OpenSubtitlesPassword) > 256 || strings.ContainsFunc(a.OpenSubtitlesPassword, unicode.IsControl):
+		return invalid("the OpenSubtitles.com password can't have line breaks")
 	case !storageID.MatchString(a.Storage):
 		return invalid("invalid storage")
 	case a.DownloadsSize < 10 || a.DownloadsSize > 10000:
@@ -137,6 +151,8 @@ func (a MediaStackAnswers) file() string {
 		"JELLYFIN_API_KEY=" + a.JellyfinAPIKey,
 		"JELLYFIN_ADMIN_USERNAME=" + a.JellyfinAdminUsername,
 		"JELLYFIN_ADMIN_PASSWORD=" + a.JellyfinAdminPassword,
+		"OPENSUBTITLES_USERNAME=" + a.OpenSubtitlesUsername,
+		"OPENSUBTITLES_PASSWORD=" + a.OpenSubtitlesPassword,
 		"RESTART_JELLYFIN=" + restart,
 		"STORAGE=" + a.Storage,
 		"DOWNLOADS_SIZE=" + strconv.Itoa(a.DownloadsSize),
@@ -145,26 +161,105 @@ func (a MediaStackAnswers) file() string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// InstallRequest is what the manager sends. With KeepSecrets, empty secret
-// fields take the values of the saved answers of the last failed install.
+// JellyfinAnswers are the questions of stacks/jellyfin/install.sh.
+type JellyfinAnswers struct {
+	// NASServer and NASExport are empty when the media share is already mounted.
+	NASServer     string `json:"nasServer"`
+	NASExport     string `json:"nasExport"`
+	MoviesFolder  string `json:"moviesFolder"`
+	SeriesFolder  string `json:"seriesFolder"`
+	AdminUsername string `json:"adminUsername"`
+	AdminPassword string `json:"adminPassword"`
+	Theme         bool   `json:"theme"`
+	Storage       string `json:"storage"`
+}
+
+func (a JellyfinAnswers) Validate() error {
+	invalid := func(message string) error { return fmt.Errorf("%w: %s", ErrInvalidAnswers, message) }
+
+	switch {
+	case (a.NASServer == "") != (a.NASExport == ""):
+		return invalid("give both the NAS address and the NFS export, or neither when the share is already mounted")
+	case a.NASServer != "" && !hostPattern.MatchString(a.NASServer):
+		return invalid("the NAS address must be an IP address or a hostname")
+	case a.NASExport != "" && !exportPattern.MatchString(a.NASExport):
+		return invalid("the NFS export must be a path, like /volume1/media")
+	case !arr.ValidFolder(a.MoviesFolder) || !arr.ValidFolder(a.SeriesFolder):
+		return invalid("the movies and series folders must be folder names, like movies")
+	case strings.EqualFold(a.MoviesFolder, a.SeriesFolder):
+		return invalid("movies and series need different folders")
+	case !jellyfinUserPattern.MatchString(a.AdminUsername):
+		return invalid("the admin username can have letters, digits, spaces, dots, dashes, underscores and @")
+	case a.AdminPassword == "" || len(a.AdminPassword) > 256 || strings.ContainsFunc(a.AdminPassword, unicode.IsControl):
+		return invalid("the admin password must be 1 to 256 characters, without line breaks")
+	case !storageID.MatchString(a.Storage):
+		return invalid("invalid storage")
+	}
+
+	return nil
+}
+
+func (a JellyfinAnswers) file() string {
+	theme := "n"
+	if a.Theme {
+		theme = "y"
+	}
+
+	lines := []string{
+		"NAS_SERVER=" + a.NASServer,
+		"NAS_EXPORT=" + a.NASExport,
+		"MOVIES_FOLDER=" + a.MoviesFolder,
+		"SERIES_FOLDER=" + a.SeriesFolder,
+		"JELLYFIN_ADMIN_USERNAME=" + a.AdminUsername,
+		"JELLYFIN_ADMIN_PASSWORD=" + a.AdminPassword,
+		"THEME=" + theme,
+		"STORAGE=" + a.Storage,
+	}
+
+	return strings.Join(lines, "\n") + "\n"
+}
+
+// appAnswers are the answers of one installer.
+type appAnswers interface {
+	Validate() error
+	file() string
+}
+
+// stackDirs are the folders of the installers in the stacks folder.
+var stackDirs = map[string]string{MediaStackApp: "arr", JellyfinApp: "jellyfin"}
+
+// InstallRequest is what the manager sends: the answers of the media stack,
+// or of Jellyfin. With KeepSecrets, empty secret fields take the values of
+// the saved answers of the last failed install.
 type InstallRequest struct {
 	MediaStackAnswers
-	KeepSecrets bool `json:"keepSecrets"`
+	Jellyfin    JellyfinAnswers `json:"jellyfin"`
+	KeepSecrets bool            `json:"keepSecrets"`
 }
 
 // SavedAnswers are the answers of the last failed install, without the
 // secrets. The secrets stay on the host.
 type SavedAnswers struct {
 	Answers           MediaStackAnswers `json:"answers"`
+	Jellyfin          JellyfinAnswers   `json:"jellyfin"`
 	HasJellyfinAPIKey bool              `json:"hasJellyfinApiKey"`
 	// HasJellyfinAdminPassword is set when the saved answers have a Jellyfin admin password.
 	HasJellyfinAdminPassword bool      `json:"hasJellyfinAdminPassword"`
+	HasOpenSubtitlesPassword bool      `json:"hasOpenSubtitlesPassword"`
 	Until                    time.Time `json:"until"`
 }
 
 type savedFile struct {
-	Answers MediaStackAnswers `json:"answers"`
-	SavedAt time.Time         `json:"savedAt"`
+	Answers  MediaStackAnswers `json:"answers"`
+	Jellyfin JellyfinAnswers   `json:"jellyfin"`
+	SavedAt  time.Time         `json:"savedAt"`
+}
+
+func (f savedFile) answersFor(app string) appAnswers {
+	if app == JellyfinApp {
+		return f.Jellyfin
+	}
+	return f.Answers
 }
 
 type AppInstallStatus struct {
@@ -177,6 +272,9 @@ type AppInstallStatus struct {
 	VMID int    `json:"vmid,omitempty"`
 	IP   string `json:"ip,omitempty"`
 	Log  string `json:"log,omitempty"`
+	// APIKey is the key that the Jellyfin installer made for Homelab. The
+	// manager saves it and never passes it on to the browser.
+	APIKey string `json:"apiKey,omitempty"`
 }
 
 // AppInstaller runs the app installers that the release bundle left on the host.
@@ -203,6 +301,12 @@ func NewAppInstaller() *AppInstaller {
 	}
 }
 
+// NewAppInstallerWith runs the installers with start instead of systemd-run,
+// and asks running whether one still runs. The dev mock uses it to play installs.
+func NewAppInstallerWith(dir, stacksDir string, start func(script, answersPath, logPath, exitPath string) error, running func() bool) *AppInstaller {
+	return &AppInstaller{Dir: dir, StacksDir: stacksDir, start: start, running: running, now: time.Now}
+}
+
 func (i *AppInstaller) statusPath() string { return filepath.Join(i.Dir, "status.json") }
 func (i *AppInstaller) logPath() string    { return filepath.Join(i.Dir, "install.log") }
 func (i *AppInstaller) exitPath() string   { return filepath.Join(i.Dir, "exit-code") }
@@ -212,19 +316,33 @@ func (i *AppInstaller) savedPath(app string) string {
 }
 
 func (i *AppInstaller) Install(app string, request InstallRequest) error {
-	if app != MediaStackApp {
+	if _, ok := stackDirs[app]; !ok {
 		return ErrUnknownApp
 	}
 
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	answers := request.MediaStackAnswers
+	var saved savedFile
 	if request.KeepSecrets {
-		saved, err := i.loadSaved(app)
-		if err != nil {
+		var err error
+		if saved, err = i.loadSavedFile(app); err != nil {
 			return err
 		}
+	}
+
+	if app == JellyfinApp {
+		answers := request.Jellyfin
+		// Only for the same admin: a new username needs its own password.
+		if request.KeepSecrets && answers.AdminPassword == "" && answers.AdminUsername == saved.Jellyfin.AdminUsername {
+			answers.AdminPassword = saved.Jellyfin.AdminPassword
+		}
+		return i.installLocked(app, savedFile{Jellyfin: answers})
+	}
+
+	answers := request.MediaStackAnswers
+	if request.KeepSecrets {
+		saved := saved.Answers
 		if answers.WireGuardPrivateKey == "" {
 			answers.WireGuardPrivateKey = saved.WireGuardPrivateKey
 		}
@@ -238,30 +356,34 @@ func (i *AppInstaller) Install(app string, request InstallRequest) error {
 		if answers.JellyfinAdminPassword == "" && answers.JellyfinAdminUsername == saved.JellyfinAdminUsername {
 			answers.JellyfinAdminPassword = saved.JellyfinAdminPassword
 		}
+		if answers.OpenSubtitlesPassword == "" && answers.OpenSubtitlesUsername == saved.OpenSubtitlesUsername {
+			answers.OpenSubtitlesPassword = saved.OpenSubtitlesPassword
+		}
 	}
 
-	return i.installLocked(app, answers)
+	return i.installLocked(app, savedFile{Answers: answers})
 }
 
 // Retry runs the install again with the saved answers.
 func (i *AppInstaller) Retry(app string) error {
-	if app != MediaStackApp {
+	if _, ok := stackDirs[app]; !ok {
 		return ErrUnknownApp
 	}
 
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	answers, err := i.loadSaved(app)
+	saved, err := i.loadSavedFile(app)
 	if err != nil {
 		return err
 	}
 
-	return i.installLocked(app, answers)
+	return i.installLocked(app, saved)
 }
 
 // installLocked needs i.mu.
-func (i *AppInstaller) installLocked(app string, answers MediaStackAnswers) error {
+func (i *AppInstaller) installLocked(app string, saved savedFile) error {
+	answers := saved.answersFor(app)
 	if err := answers.Validate(); err != nil {
 		return err
 	}
@@ -269,7 +391,7 @@ func (i *AppInstaller) installLocked(app string, answers MediaStackAnswers) erro
 	if i.running() {
 		return ErrAppInstallRunning
 	}
-	script := filepath.Join(i.StacksDir, "arr", "install.sh")
+	script := filepath.Join(i.StacksDir, stackDirs[app], "install.sh")
 	if _, err := os.Stat(script); err != nil {
 		return ErrAppNotAvailable
 	}
@@ -287,7 +409,7 @@ func (i *AppInstaller) installLocked(app string, answers MediaStackAnswers) erro
 	if err := os.WriteFile(answersPath, []byte(answers.file()), 0o600); err != nil {
 		return err
 	}
-	if err := i.save(app, answers); err != nil {
+	if err := i.save(app, saved); err != nil {
 		os.Remove(answersPath)
 		return err
 	}
@@ -320,10 +442,17 @@ func (i *AppInstaller) Status() AppInstallStatus {
 	log := ""
 	if data, err := os.ReadFile(i.logPath()); err == nil {
 		log = ansiPattern.ReplaceAllString(string(data), "")
+		if match := jellyfinKeyPattern.FindStringSubmatch(log); match != nil {
+			status.APIKey = match[1]
+			log = jellyfinKeyPattern.ReplaceAllString(log, "")
+		}
 		status.Log = tail(log, maxAppLog)
 	}
 
 	if status.State != UpgradeRunning {
+		if status.State != UpgradeSucceeded {
+			status.APIKey = ""
+		}
 		return status
 	}
 
@@ -348,6 +477,8 @@ func (i *AppInstaller) Status() AppInstallStatus {
 	// A working install needs no retry, so its secrets can go.
 	if status.State == UpgradeSucceeded {
 		os.Remove(i.savedPath(status.App))
+	} else {
+		status.APIKey = ""
 	}
 
 	return status
@@ -355,7 +486,7 @@ func (i *AppInstaller) Status() AppInstallStatus {
 
 // Saved returns the saved answers without the secrets, or nil when there are none.
 func (i *AppInstaller) Saved(app string) (*SavedAnswers, error) {
-	if app != MediaStackApp {
+	if _, ok := stackDirs[app]; !ok {
 		return nil, ErrUnknownApp
 	}
 
@@ -370,21 +501,24 @@ func (i *AppInstaller) Saved(app string) (*SavedAnswers, error) {
 		return nil, err
 	}
 
-	answers := file.Answers
+	answers, jellyfin := file.Answers, file.Jellyfin
 	view := &SavedAnswers{
 		HasJellyfinAPIKey:        answers.JellyfinAPIKey != "",
-		HasJellyfinAdminPassword: answers.JellyfinAdminPassword != "",
+		HasJellyfinAdminPassword: answers.JellyfinAdminPassword != "" || jellyfin.AdminPassword != "",
+		HasOpenSubtitlesPassword: answers.OpenSubtitlesPassword != "",
 		Until:                    file.SavedAt.Add(SavedAnswersTTL),
 	}
-	answers.WireGuardPrivateKey, answers.Password, answers.JellyfinAPIKey, answers.JellyfinAdminPassword = "", "", "", ""
-	view.Answers = answers
+	answers.WireGuardPrivateKey, answers.Password, answers.JellyfinAPIKey = "", "", ""
+	answers.JellyfinAdminPassword, answers.OpenSubtitlesPassword = "", ""
+	jellyfin.AdminPassword = ""
+	view.Answers, view.Jellyfin = answers, jellyfin
 
 	return view, nil
 }
 
 // Forget removes the saved answers.
 func (i *AppInstaller) Forget(app string) error {
-	if app != MediaStackApp {
+	if _, ok := stackDirs[app]; !ok {
 		return ErrUnknownApp
 	}
 
@@ -399,8 +533,9 @@ func (i *AppInstaller) Forget(app string) error {
 }
 
 // save keeps the answers for a retry, readable by root only. It needs i.mu.
-func (i *AppInstaller) save(app string, answers MediaStackAnswers) error {
-	data, err := json.Marshal(savedFile{Answers: answers, SavedAt: i.now()})
+func (i *AppInstaller) save(app string, saved savedFile) error {
+	saved.SavedAt = i.now()
+	data, err := json.Marshal(saved)
 	if err != nil {
 		return err
 	}
@@ -430,11 +565,6 @@ func (i *AppInstaller) loadSavedFile(app string) (savedFile, error) {
 	}
 
 	return file, nil
-}
-
-func (i *AppInstaller) loadSaved(app string) (MediaStackAnswers, error) {
-	file, err := i.loadSavedFile(app)
-	return file.Answers, err
 }
 
 // startAppUnit runs the installer with systemd-run. The shell writes the exit

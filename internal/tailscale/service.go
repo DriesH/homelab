@@ -40,6 +40,18 @@ var enableLink = regexp.MustCompile(`https://login\.tailscale\.com/f/\S+`)
 // Runner runs the tailscale CLI and returns its combined output. Tests replace it.
 type Runner func(ctx context.Context, args ...string) ([]byte, error)
 
+// HostTag is the tag of the manager. Tailscale Services need a tagged host.
+const HostTag = "tag:homelab"
+
+// AppService is an app that the manager can publish as a Tailscale Service,
+// like svc:seerr at https://seerr.<tailnet>.ts.net.
+type AppService struct {
+	Name  string
+	Title string
+	// Backend is the local address of the app proxy in the manager.
+	Backend string
+}
+
 type Options struct {
 	DataDir string
 	// Backend is the local address of the manager that Serve forwards to,
@@ -49,6 +61,8 @@ type Options struct {
 	Run     Runner
 	// Operator is the Unix user that may run the CLI. It defaults to the current user.
 	Operator string
+	// Services are the apps that can be published as Tailscale Services.
+	Services []AppService
 }
 
 type Settings struct {
@@ -56,6 +70,16 @@ type Settings struct {
 	// on the tailnet can reach the home network.
 	ShareSubnet bool   `json:"shareSubnet"`
 	Subnet      string `json:"subnet"`
+	// UseTag logs the manager in as tag:homelab instead of as a user.
+	UseTag bool `json:"useTag"`
+}
+
+type ServiceView struct {
+	Name      string `json:"name"`
+	Title     string `json:"title"`
+	Published bool   `json:"published"`
+	// URL is the address on the tailnet, like https://seerr.tail1234.ts.net.
+	URL string `json:"url,omitempty"`
 }
 
 type Peer struct {
@@ -83,6 +107,10 @@ type View struct {
 
 	Serving  bool   `json:"serving"`
 	ServeURL string `json:"serveUrl,omitempty"`
+
+	// Tags of this device. Without tag:homelab, it can't host Services.
+	Tags     []string      `json:"tags"`
+	Services []ServiceView `json:"services"`
 
 	Settings        Settings `json:"settings"`
 	SuggestedSubnet string   `json:"suggestedSubnet,omitempty"`
@@ -164,6 +192,7 @@ type status struct {
 		DNSName       string   `json:"DNSName"`
 		TailscaleIPs  []string `json:"TailscaleIPs"`
 		PrimaryRoutes []string `json:"PrimaryRoutes"`
+		Tags          []string `json:"Tags"`
 	} `json:"Self"`
 	CurrentTailnet *struct {
 		Name string `json:"Name"`
@@ -187,6 +216,8 @@ func (s *Service) Status(ctx context.Context) View {
 		Health:     []string{},
 		IPs:        []string{},
 		Peers:      []Peer{},
+		Tags:       []string{},
+		Services:   []ServiceView{},
 	}
 	s.mu.Unlock()
 	view.SuggestedSubnet = localSubnet()
@@ -222,6 +253,7 @@ func (s *Service) Status(ctx context.Context) View {
 		view.DNSName = strings.TrimSuffix(parsed.Self.DNSName, ".")
 		view.IPs = nonNil(parsed.Self.TailscaleIPs)
 		view.SubnetApproved = view.Settings.ShareSubnet && slices.Contains(parsed.Self.PrimaryRoutes, view.Settings.Subnet)
+		view.Tags = nonNil(parsed.Self.Tags)
 	}
 
 	for _, peer := range parsed.Peer {
@@ -237,9 +269,21 @@ func (s *Service) Status(ctx context.Context) View {
 	slices.SortFunc(view.Peers, func(a, b Peer) int { return strings.Compare(a.Name, b.Name) })
 
 	if view.State == "Running" {
-		view.Serving = s.serving(ctx)
+		config := s.serveConfig(ctx)
+		view.Serving = config.servesManager()
 		if view.Serving && view.DNSName != "" {
 			view.ServeURL = "https://" + view.DNSName
+		}
+
+		// The tailnet domain is the DNS name without the device name.
+		_, domain, _ := strings.Cut(view.DNSName, ".")
+		for _, app := range s.Services {
+			_, published := config.Services["svc:"+app.Name]
+			service := ServiceView{Name: app.Name, Title: app.Title, Published: published}
+			if published && domain != "" {
+				service.URL = "https://" + app.Name + "." + domain
+			}
+			view.Services = append(view.Services, service)
 		}
 	}
 
@@ -253,24 +297,27 @@ func nonNil(values []string) []string {
 	return values
 }
 
-// serving reports whether Serve forwards HTTPS to the manager.
-func (s *Service) serving(ctx context.Context) bool {
-	output, err := s.run(ctx, "serve", "status", "--json")
-	if err != nil {
-		return false
+type serveConfig struct {
+	TCP      map[string]json.RawMessage `json:"TCP"`
+	Web      map[string]json.RawMessage `json:"Web"`
+	Services map[string]json.RawMessage `json:"Services"`
+}
+
+func (s *Service) serveConfig(ctx context.Context) serveConfig {
+	var config serveConfig
+	if output, err := s.run(ctx, "serve", "status", "--json"); err == nil {
+		json.Unmarshal(output, &config)
 	}
 
-	var config struct {
-		TCP map[string]json.RawMessage `json:"TCP"`
-		Web map[string]json.RawMessage `json:"Web"`
-	}
-	if json.Unmarshal(output, &config) != nil {
-		return false
-	}
-	if _, ok := config.TCP["443"]; ok {
+	return config
+}
+
+// servesManager reports whether Serve forwards HTTPS on the device name to the manager.
+func (c serveConfig) servesManager() bool {
+	if _, ok := c.TCP["443"]; ok {
 		return true
 	}
-	for host := range config.Web {
+	for host := range c.Web {
 		if strings.HasSuffix(host, ":443") {
 			return true
 		}
@@ -292,6 +339,9 @@ func (s *Service) upArgs(settings Settings, timeout time.Duration) []string {
 	if settings.ShareSubnet {
 		args = append(args, "--advertise-routes="+settings.Subnet)
 	}
+	if settings.UseTag {
+		args = append(args, "--advertise-tags="+HostTag)
+	}
 
 	return args
 }
@@ -299,6 +349,29 @@ func (s *Service) upArgs(settings Settings, timeout time.Duration) []string {
 // Connect starts a login. Without an auth key, Tailscale shows a login link in
 // the status, which the page opens.
 func (s *Service) Connect(background context.Context, authKey string) error {
+	return s.connect(background, authKey, false)
+}
+
+// UseTag logs the manager in again as tag:homelab, which Tailscale Services
+// need. The page shows the login link. It needs tag:homelab in tagOwners.
+func (s *Service) UseTag(background context.Context) error {
+	s.mu.Lock()
+	previous := s.settings
+	s.settings.UseTag = true
+	err := s.save()
+	if err != nil {
+		s.settings = previous
+	}
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+
+	// A device that is logged in as a user must log in again to get a tag.
+	return s.connect(background, "", true)
+}
+
+func (s *Service) connect(background context.Context, authKey string, forceReauth bool) error {
 	s.mu.Lock()
 	if s.connecting {
 		s.mu.Unlock()
@@ -310,6 +383,9 @@ func (s *Service) Connect(background context.Context, authKey string) error {
 	s.mu.Unlock()
 
 	args := s.upArgs(settings, loginTimeout)
+	if forceReauth {
+		args = append(args, "--force-reauth")
+	}
 	var keyFile string
 	if authKey = strings.TrimSpace(authKey); authKey != "" {
 		// Pass the key in a file, so it doesn't show up in the process list.
@@ -360,6 +436,33 @@ func (s *Service) Logout(ctx context.Context) error {
 	return err
 }
 
+// SetService publishes an app as a Tailscale Service, or stops that.
+func (s *Service) SetService(ctx context.Context, name string, published bool) error {
+	index := slices.IndexFunc(s.Services, func(app AppService) bool { return app.Name == name })
+	if index < 0 {
+		return fmt.Errorf("%w: unknown app %q", ErrInvalidSettings, name)
+	}
+	app := s.Services[index]
+
+	ctx, cancel := context.WithTimeout(ctx, cliTimeout)
+	defer cancel()
+
+	args := []string{"serve", "clear", "svc:" + app.Name}
+	if published {
+		args = []string{"serve", "--service=svc:" + app.Name, "--https=443", "--yes", app.Backend}
+	}
+
+	output, err := s.run(ctx, args...)
+	if link := enableLink.FindString(string(output)); link != "" {
+		return fmt.Errorf("turn on HTTPS certificates for your tailnet first: %s", link)
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return errors.New("tailscale serve did not answer in time")
+	}
+
+	return err
+}
+
 // SetServe turns on or off HTTPS access to the manager at its tailnet name.
 func (s *Service) SetServe(ctx context.Context, enabled bool) error {
 	ctx, cancel := context.WithTimeout(ctx, cliTimeout)
@@ -391,6 +494,8 @@ func (s *Service) SaveSettings(ctx context.Context, settings Settings) error {
 
 	s.mu.Lock()
 	previous := s.settings
+	// Only UseTag changes the tag, so this form can't drop it by accident.
+	settings.UseTag = previous.UseTag
 	s.settings = settings
 	err := s.save()
 	if err != nil {

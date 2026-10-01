@@ -29,6 +29,7 @@ type Agent interface {
 	SavedAppAnswers(ctx context.Context, app string) (*agent.SavedAnswers, error)
 	ForgetAppAnswers(ctx context.Context, app string) error
 	AppInstallStatus(ctx context.Context) (agent.AppInstallStatus, error)
+	Mounts(ctx context.Context) ([]agent.Mount, error)
 }
 
 type Proxmox interface {
@@ -49,15 +50,32 @@ type App struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	// Tag marks the container of the app in Proxmox.
-	Tag   string `json:"-"`
-	Links []Link `json:"links"`
+	Tag string `json:"-"`
+	// MatchName is a container name that also counts as this app, for an
+	// install that Homelab did not make, like Jellyfin from community-scripts.
+	MatchName string `json:"-"`
+	// Subdomain is the name that Homelab forwards to the app, like seerr in seerr.homelab.local.
+	Subdomain string `json:"-"`
+	Links     []Link `json:"links"`
 }
 
+// MediaShareMount is where the installers mount the NAS share on the host.
+const MediaShareMount = "/mnt/homelab/media"
+
 var Catalog = []App{{
+	ID:          agent.JellyfinApp,
+	Name:        "Jellyfin",
+	Description: "Watch your movies and series on every device. Transcodes with the GPU of the host, when it has one.",
+	Tag:         "jellyfin",
+	MatchName:   "jellyfin",
+	Subdomain:   "jellyfin",
+	Links:       []Link{{Name: "Jellyfin", Description: "Watch", Port: 8096}},
+}, {
 	ID:          agent.MediaStackApp,
 	Name:        "Media stack",
 	Description: "Request, find and download movies and series for Jellyfin. Downloads go through ProtonVPN.",
 	Tag:         "media",
+	Subdomain:   "seerr",
 	Links: []Link{
 		{Name: "Seerr", Description: "Requests", Port: 5055},
 		{Name: "Radarr", Description: "Movies", Port: 7878},
@@ -70,9 +88,11 @@ var Catalog = []App{{
 
 type AppView struct {
 	App
-	Installed bool   `json:"installed"`
-	VMID      int    `json:"vmid,omitempty"`
-	Status    string `json:"status,omitempty"`
+	Installed bool `json:"installed"`
+	// HostURL is the address of the app through Homelab, like https://seerr.homelab.local.
+	HostURL string `json:"hostUrl,omitempty"`
+	VMID    int    `json:"vmid,omitempty"`
+	Status  string `json:"status,omitempty"`
 	// Install is the last install of this app, while it runs or when it failed.
 	Install *agent.AppInstallStatus `json:"install"`
 	// Saved are the answers of a failed install, without secrets, for a retry.
@@ -80,15 +100,18 @@ type AppView struct {
 }
 
 type Defaults struct {
-	Storages          []string `json:"storages"`
-	Storage           string   `json:"storage"`
-	JellyfinVMID      int      `json:"jellyfinVmid,omitempty"`
-	MoviesFolder      string   `json:"moviesFolder"`
-	SeriesFolder      string   `json:"seriesFolder"`
-	VPNCountries      string   `json:"vpnCountries"`
-	SubtitleLanguages string   `json:"subtitleLanguages"`
-	Username          string   `json:"username"`
-	DownloadsSize     int      `json:"downloadsSize"`
+	Storages     []string `json:"storages"`
+	Storage      string   `json:"storage"`
+	JellyfinVMID int      `json:"jellyfinVmid,omitempty"`
+	// MediaShare is the NAS share that is mounted for the apps, like
+	// 192.168.1.5:/volume1/media. Empty when there is none yet.
+	MediaShare        string `json:"mediaShare,omitempty"`
+	MoviesFolder      string `json:"moviesFolder"`
+	SeriesFolder      string `json:"seriesFolder"`
+	VPNCountries      string `json:"vpnCountries"`
+	SubtitleLanguages string `json:"subtitleLanguages"`
+	Username          string `json:"username"`
+	DownloadsSize     int    `json:"downloadsSize"`
 }
 
 type View struct {
@@ -103,8 +126,13 @@ type Options struct {
 	Proxmox Proxmox
 	// SelfVMID is the manager's container. The agent, and so the new app, runs on its node.
 	SelfVMID int
+	// Hostname is the name of Homelab, like homelab.local, for the app names below it.
+	Hostname string
 	Notify   func(ctx context.Context, text string)
-	Logger   *slog.Logger
+	// OnInstalled runs after an install worked, for example to connect a new
+	// Jellyfin to the Jellyfin page.
+	OnInstalled func(ctx context.Context, app string, status agent.AppInstallStatus) error
+	Logger      *slog.Logger
 	// PollInterval is how often a running install is checked. Tests shorten it.
 	PollInterval time.Duration
 }
@@ -147,8 +175,11 @@ func (s *Service) Status(ctx context.Context) (View, error) {
 		appView := AppView{App: app}
 		appView.Links = slices.Clone(app.Links)
 
-		if guest, found := findGuest(resources, app.Tag); found {
+		if guest, found := findGuest(resources, app); found {
 			appView.Installed, appView.VMID, appView.Status = true, guest.VMID, guest.Status
+			if app.Subdomain != "" && s.Hostname != "" {
+				appView.HostURL = "https://" + app.Subdomain + "." + s.Hostname
+			}
 			if ip := s.guestIP(ctx, guest); ip != "" {
 				for i := range appView.Links {
 					appView.Links[i].URL = fmt.Sprintf("http://%s:%d", ip, appView.Links[i].Port)
@@ -156,7 +187,10 @@ func (s *Service) Status(ctx context.Context) (View, error) {
 			}
 		}
 		if install.App == app.ID && install.State != agent.UpgradeIdle && !(appView.Installed && install.State == agent.UpgradeSucceeded) {
-			appView.Install = &install
+			// The API key of a new Jellyfin is for Homelab only.
+			shown := install
+			shown.APIKey = ""
+			appView.Install = &shown
 		}
 		if !appView.Installed && install.State != agent.UpgradeRunning {
 			if saved, err := s.Agent.SavedAppAnswers(ctx, app.ID); err == nil {
@@ -168,6 +202,30 @@ func (s *Service) Status(ctx context.Context) (View, error) {
 	}
 
 	return view, nil
+}
+
+// Address returns http://<ip>:<port> of an installed app, for a link that works without the Homelab page.
+func (s *Service) Address(ctx context.Context, id string, port int) (string, error) {
+	index := slices.IndexFunc(Catalog, func(app App) bool { return app.ID == id })
+	if index < 0 {
+		return "", ErrUnknownApp
+	}
+	app := Catalog[index]
+
+	resources, err := s.Proxmox.Resources(ctx)
+	if err != nil {
+		return "", err
+	}
+	guest, found := findGuest(resources, app)
+	if !found {
+		return "", fmt.Errorf("the %s is not installed", strings.ToLower(app.Name))
+	}
+	ip := s.guestIP(ctx, guest)
+	if ip == "" {
+		return "", fmt.Errorf("container %d of the %s is not running", guest.VMID, strings.ToLower(app.Name))
+	}
+
+	return fmt.Sprintf("http://%s:%d", ip, port), nil
 }
 
 // node is where the host agent runs: the node of the manager's container.
@@ -217,16 +275,32 @@ func (s *Service) defaults(ctx context.Context, node string, resources []proxmox
 		}
 	}
 
+	// MediaShareMount is where the installers mount the NAS share.
+	if mounts, err := s.Agent.Mounts(ctx); err == nil {
+		for _, mount := range mounts {
+			if mount.Path == MediaShareMount && mount.Mounted {
+				defaults.MediaShare = mount.Source
+			}
+		}
+	}
+
 	return defaults
 }
 
-func findGuest(resources []proxmox.Resource, tag string) (proxmox.Resource, bool) {
+// findGuest finds the container of an app: by its Homelab tags, or by name
+// for an install that Homelab did not make.
+func findGuest(resources []proxmox.Resource, app App) (proxmox.Resource, bool) {
 	for _, resource := range resources {
 		if resource.Type != "lxc" || resource.Template == 1 {
 			continue
 		}
 		tags := strings.Split(resource.Tags, ";")
-		if slices.Contains(tags, "homelab") && slices.Contains(tags, tag) {
+		if slices.Contains(tags, "homelab") && slices.Contains(tags, app.Tag) {
+			return resource, true
+		}
+	}
+	for _, resource := range resources {
+		if resource.Type == "lxc" && resource.Template != 1 && app.MatchName != "" && resource.Name == app.MatchName {
 			return resource, true
 		}
 	}
@@ -256,7 +330,11 @@ func (s *Service) guestIP(ctx context.Context, guest proxmox.Resource) string {
 func (s *Service) Install(ctx context.Context, background context.Context, id string, request agent.InstallRequest) error {
 	// With KeepSecrets, the agent checks the answers after it adds the saved secrets.
 	if !request.KeepSecrets {
-		if err := request.Validate(); err != nil {
+		var answers interface{ Validate() error } = request.MediaStackAnswers
+		if id == agent.JellyfinApp {
+			answers = request.Jellyfin
+		}
+		if err := answers.Validate(); err != nil {
 			return err
 		}
 	}
@@ -293,7 +371,7 @@ func (s *Service) start(ctx context.Context, background context.Context, id stri
 	if err != nil {
 		return err
 	}
-	if _, found := findGuest(resources, app.Tag); found {
+	if _, found := findGuest(resources, app); found {
 		return ErrInstalled
 	}
 	if status, err := s.Agent.AppInstallStatus(ctx); err == nil && status.State == agent.UpgradeRunning {
@@ -340,6 +418,11 @@ func (s *Service) monitor(ctx context.Context, app App) {
 
 		if status.State == agent.UpgradeSucceeded {
 			s.Logger.Info("app installed", "app", app.ID, "vmid", status.VMID)
+			if s.OnInstalled != nil {
+				if err := s.OnInstalled(ctx, app.ID, status); err != nil {
+					s.Logger.Warn("after the install", "app", app.ID, "error", err)
+				}
+			}
 			s.Notify(ctx, fmt.Sprintf("✅ %s is installed in container %d.", app.Name, status.VMID))
 		} else {
 			s.Logger.Warn("app install failed", "app", app.ID, "message", status.Message)

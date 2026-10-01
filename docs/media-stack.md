@@ -4,11 +4,14 @@ Prowlarr, Radarr, Sonarr, Bazarr, qBittorrent, Seerr, Recyclarr and FlareSolverr
 
 ## Before you start
 
+Install Jellyfin first, from the Apps page or in another way: the installer of the media stack finds a container named `jellyfin` and connects it. See [jellyfin.md](jellyfin.md).
+
 1. On the UGREEN NAS, turn on NFS: Control Panel > File Services > NFS.
 2. Add an NFS permission rule to the media share for the IP of the Proxmox host: Read/Write, and squash "Map all users to admin".
 3. Make sure that the movies and series folders allow writing over NFS. The installer checks this and names the folder that fails. NFS only looks at the folder permissions on the NAS disk, not at the share permissions for SMB users.
 4. Create a ProtonVPN WireGuard key with "NAT-PMP (Port Forwarding)" on.
 5. Optional: create a Jellyfin API key (Dashboard > API Keys).
+6. Optional: make a free account on [opensubtitles.com](https://www.opensubtitles.com). Not opensubtitles.org: that is the old site, and Bazarr can't use it without a paid VIP account.
 
 ## Install
 
@@ -43,6 +46,18 @@ Media stacks that were installed before you could choose the folders use `movies
 - connects all apps: logins, root folders, qBittorrent, Prowlarr sync, FlareSolverr, subtitles and Jellyfin libraries.
 
 After the install, the Apps page shows links to each app. Then add your indexers in Prowlarr.
+
+## Subtitles
+
+Bazarr adds subtitles in your languages to every new movie and episode. The installer turns on these sources:
+
+- **Embedded Subtitles**: subtitles that are already inside the video file;
+- **Podnapisi**: free, no account;
+- **OpenSubtitles.com**: only when you give its username and password in the form. It has by far the most subtitles. The free account has a daily download limit, which is enough for normal use.
+
+The OpenSubtitles.com password is a secret like the other passwords: it goes to the container on stdin and is never written to a file there. Bazarr keeps it in its own settings.
+
+To add OpenSubtitles.com later: in Bazarr, open **Settings > Providers**, add **OpenSubtitles.com** (not .org), and enter your username, not your email address. Then **Wanted > Search All** searches at once.
 
 ## Seerr
 

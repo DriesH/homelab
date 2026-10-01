@@ -26,16 +26,19 @@ const (
 
 type Authority struct {
 	hostname string
-	cert     *x509.Certificate
-	key      *ecdsa.PrivateKey
-	certPEM  []byte
+	// names are the names in the server certificate: the hostname and the app names below it.
+	names   []string
+	cert    *x509.Certificate
+	key     *ecdsa.PrivateKey
+	certPEM []byte
 
 	mu   sync.Mutex
 	leaf *tls.Certificate
 }
 
-// Load reads the CA from dir, or creates one limited to hostname.
-func Load(dir, hostname string) (*Authority, error) {
+// Load reads the CA from dir, or creates one limited to hostname. The server
+// certificate also gets appNames, which must be below hostname, like seerr.homelab.local.
+func Load(dir, hostname string, appNames ...string) (*Authority, error) {
 	certPath := filepath.Join(dir, "ca.pem")
 	keyPath := filepath.Join(dir, "ca-key.pem")
 
@@ -71,7 +74,9 @@ func Load(dir, hostname string) (*Authority, error) {
 		return nil, err
 	}
 
-	return &Authority{hostname: hostname, cert: cert, key: key, certPEM: certPEM}, nil
+	names := append([]string{hostname}, appNames...)
+
+	return &Authority{hostname: hostname, names: names, cert: cert, key: key, certPEM: certPEM}, nil
 }
 
 // CertPEM is the root certificate users install on their devices.
@@ -103,7 +108,7 @@ func (a *Authority) issueLeaf() (*tls.Certificate, error) {
 	template := &x509.Certificate{
 		SerialNumber: randomSerial(),
 		Subject:      pkix.Name{CommonName: a.hostname},
-		DNSNames:     []string{a.hostname},
+		DNSNames:     a.names,
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().Add(leafValidity),
 		KeyUsage:     x509.KeyUsageDigitalSignature,

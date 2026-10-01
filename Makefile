@@ -15,13 +15,16 @@ build: web
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BUNDLE)/homelab ./cmd/homelab
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BUNDLE)/homelab-agent ./cmd/homelab-agent
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BUNDLE)/stacks/arr/homelab-arr ./cmd/homelab-arr
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BUNDLE)/stacks/jellyfin/homelab-jellyfin ./cmd/homelab-jellyfin
 
 bundle: build
 	echo "$(VERSION)" >$(BUNDLE)/VERSION
 	install -m 0755 deploy/install.sh $(BUNDLE)/install.sh
-	install -m 0644 deploy/lib.sh deploy/homelab.service deploy/homelab-agent.service $(BUNDLE)/
+	install -m 0644 deploy/lib.sh deploy/homelab.service deploy/homelab-agent.service deploy/homelab-mdns.service $(BUNDLE)/
+	install -m 0755 deploy/homelab-mdns $(BUNDLE)/homelab-mdns
 	install -m 0755 deploy/stacks/arr/install.sh $(BUNDLE)/stacks/arr/install.sh
 	install -m 0644 deploy/stacks/arr/compose.yaml deploy/stacks/arr/recyclarr.yml $(BUNDLE)/stacks/arr/
+	install -m 0755 deploy/stacks/jellyfin/install.sh $(BUNDLE)/stacks/jellyfin/install.sh
 	# COPYFILE_DISABLE stops macOS tar from adding ._ files, which the agent refuses.
 	COPYFILE_DISABLE=1 tar -czf $(BUNDLE).tar.gz -C dist $(notdir $(BUNDLE))
 

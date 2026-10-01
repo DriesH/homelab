@@ -18,7 +18,14 @@ type fakeAgent struct {
 	installed []string
 	retried   []string
 	saved     *agent.SavedAnswers
+	mounts    []agent.Mount
 	requests  []agent.InstallRequest
+}
+
+func (f *fakeAgent) Mounts(context.Context) ([]agent.Mount, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.mounts, nil
 }
 
 func (f *fakeAgent) RetryApp(_ context.Context, app string) error {
@@ -93,6 +100,17 @@ func validAnswers() agent.MediaStackAnswers {
 	}
 }
 
+func appByID(t *testing.T, view View, id string) AppView {
+	t.Helper()
+	for _, app := range view.Apps {
+		if app.ID == id {
+			return app
+		}
+	}
+	t.Fatalf("no app %q in %+v", id, view.Apps)
+	return AppView{}
+}
+
 func baseResources() []proxmox.Resource {
 	return []proxmox.Resource{
 		{Type: "node", Node: "pve", Status: "online"},
@@ -108,7 +126,7 @@ func TestStatusBeforeInstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	media := view.Apps[0]
+	media := appByID(t, view, "media")
 	if media.ID != "media" || media.Installed || media.Install != nil || media.Links[0].URL != "" {
 		t.Fatalf("media = %+v", media)
 	}
@@ -121,14 +139,14 @@ func TestStatusBeforeInstall(t *testing.T) {
 func TestStatusAfterInstall(t *testing.T) {
 	resources := append(baseResources(), proxmox.Resource{Type: "lxc", Node: "pve", VMID: 130, Name: "media", Status: "running", Tags: "homelab;media"})
 	fake := &fakeAgent{status: agent.AppInstallStatus{App: "media", State: agent.UpgradeSucceeded, VMID: 130}}
-	service := New(Options{Agent: fake, Proxmox: &fakeProxmox{resources: resources}, SelfVMID: 100})
+	service := New(Options{Agent: fake, Proxmox: &fakeProxmox{resources: resources}, SelfVMID: 100, Hostname: "homelab.local"})
 
 	view, err := service.Status(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	media := view.Apps[0]
-	if !media.Installed || media.VMID != 130 || media.Install != nil {
+	media := appByID(t, view, "media")
+	if !media.Installed || media.VMID != 130 || media.Install != nil || media.HostURL != "https://seerr.homelab.local" {
 		t.Fatalf("media = %+v", media)
 	}
 	if media.Links[0].URL != "http://192.168.1.50:5055" || media.Links[5].URL != "http://192.168.1.50:8080" {
@@ -171,8 +189,8 @@ func TestInstallChecksAndNotifies(t *testing.T) {
 	}
 
 	view, _ := service.Status(ctx)
-	if view.Apps[0].Install == nil || view.Apps[0].Install.State != agent.UpgradeRunning {
-		t.Fatalf("install = %+v", view.Apps[0].Install)
+	if appByID(t, view, "media").Install == nil || appByID(t, view, "media").Install.State != agent.UpgradeRunning {
+		t.Fatalf("install = %+v", appByID(t, view, "media").Install)
 	}
 
 	fake.set(agent.AppInstallStatus{App: "media", State: agent.UpgradeFailed, Message: "the VPN did not connect"})
@@ -193,8 +211,8 @@ func TestRetryAndChangedAnswers(t *testing.T) {
 	ctx := context.Background()
 
 	view, err := service.Status(ctx)
-	if err != nil || view.Apps[0].Saved != saved {
-		t.Fatalf("saved = %+v, err = %v", view.Apps[0].Saved, err)
+	if err != nil || appByID(t, view, "media").Saved != saved {
+		t.Fatalf("saved = %+v, err = %v", appByID(t, view, "media").Saved, err)
 	}
 
 	if err := service.Retry(ctx, ctx, "media"); err != nil || len(fake.retried) != 1 {
@@ -225,5 +243,100 @@ func TestRetryAndChangedAnswers(t *testing.T) {
 	}
 	if err := service.Forget(ctx, "nextcloud"); !errors.Is(err, ErrUnknownApp) {
 		t.Fatalf("forget unknown: %v", err)
+	}
+}
+
+func TestAddress(t *testing.T) {
+	resources := append(baseResources(), proxmox.Resource{Type: "lxc", Node: "pve", VMID: 130, Name: "media", Status: "running", Tags: "homelab;media"})
+	service := New(Options{Agent: &fakeAgent{}, Proxmox: &fakeProxmox{resources: resources}, SelfVMID: 100})
+
+	address, err := service.Address(context.Background(), "media", 5055)
+	if err != nil || address != "http://192.168.1.50:5055" {
+		t.Fatalf("address = %q, err = %v", address, err)
+	}
+
+	service = New(Options{Agent: &fakeAgent{}, Proxmox: &fakeProxmox{resources: baseResources()}, SelfVMID: 100})
+	if _, err := service.Address(context.Background(), "media", 5055); err == nil || !strings.Contains(err.Error(), "not installed") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestJellyfinFromCommunityScriptsCountsAsInstalled(t *testing.T) {
+	// baseResources has a container named jellyfin without Homelab tags.
+	fake := &fakeAgent{status: agent.AppInstallStatus{State: agent.UpgradeIdle}}
+	service := New(Options{Agent: fake, Proxmox: &fakeProxmox{resources: baseResources()}, SelfVMID: 100})
+
+	view, err := service.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	jellyfin := appByID(t, view, "jellyfin")
+	if !jellyfin.Installed || jellyfin.VMID != 110 || jellyfin.Links[0].URL != "http://192.168.1.50:8096" {
+		t.Fatalf("jellyfin = %+v", jellyfin)
+	}
+	ctx := context.Background()
+	if err := service.Install(ctx, ctx, "jellyfin", agent.InstallRequest{Jellyfin: validJellyfin()}); !errors.Is(err, ErrInstalled) {
+		t.Fatalf("second Jellyfin: %v", err)
+	}
+}
+
+func validJellyfin() agent.JellyfinAnswers {
+	return agent.JellyfinAnswers{
+		MoviesFolder: "movies", SeriesFolder: "series",
+		AdminUsername: "dries", AdminPassword: "jelly pass", Theme: true, Storage: "local-lvm",
+	}
+}
+
+func TestJellyfinInstallConnectsHomelab(t *testing.T) {
+	resources := []proxmox.Resource{
+		{Type: "node", Node: "pve", Status: "online"},
+		{Type: "lxc", Node: "pve", VMID: 100, Name: "homelab", Status: "running", Tags: "homelab"},
+	}
+	fake := &fakeAgent{
+		status: agent.AppInstallStatus{State: agent.UpgradeIdle},
+		mounts: []agent.Mount{{Path: MediaShareMount, Source: "192.168.1.5:/volume1/media", Mounted: true}},
+	}
+	connected := make(chan agent.AppInstallStatus, 1)
+	service := New(Options{
+		Agent: fake, Proxmox: &fakeProxmox{resources: resources}, SelfVMID: 100, PollInterval: 10 * time.Millisecond,
+		OnInstalled: func(_ context.Context, app string, status agent.AppInstallStatus) error {
+			if app == "jellyfin" {
+				connected <- status
+			}
+			return nil
+		},
+	})
+	ctx := context.Background()
+
+	view, _ := service.Status(ctx)
+	if view.Defaults.MediaShare != "192.168.1.5:/volume1/media" {
+		t.Fatalf("media share = %q", view.Defaults.MediaShare)
+	}
+
+	bad := validJellyfin()
+	bad.AdminPassword = ""
+	if err := service.Install(ctx, ctx, "jellyfin", agent.InstallRequest{Jellyfin: bad}); !errors.Is(err, agent.ErrInvalidAnswers) {
+		t.Fatalf("no password: %v", err)
+	}
+	if err := service.Install(ctx, ctx, "jellyfin", agent.InstallRequest{Jellyfin: validJellyfin()}); err != nil {
+		t.Fatal(err)
+	}
+
+	done := agent.AppInstallStatus{App: "jellyfin", State: agent.UpgradeSucceeded, VMID: 140, IP: "192.168.1.60", APIKey: "secret-key"}
+	fake.set(done)
+	select {
+	case status := <-connected:
+		if status.APIKey != "secret-key" || status.IP != "192.168.1.60" {
+			t.Fatalf("status = %+v", status)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnInstalled did not run")
+	}
+
+	// The key never goes to the browser.
+	fake.set(agent.AppInstallStatus{App: "jellyfin", State: agent.UpgradeFailed, APIKey: "secret-key"})
+	view, _ = service.Status(ctx)
+	if install := appByID(t, view, "jellyfin").Install; install == nil || install.APIKey != "" {
+		t.Fatalf("install = %+v", install)
 	}
 }

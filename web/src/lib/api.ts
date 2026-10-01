@@ -211,7 +211,9 @@ export type SelfUpdate = {
 
 export type SelfUpdateSettings = { repo: string; token: string; clearToken: boolean; autoInstall: boolean }
 
-export type TailscaleSettings = { shareSubnet: boolean; subnet: string }
+export type TailscaleSettings = { shareSubnet: boolean; subnet: string; useTag?: boolean }
+
+export type TailscaleService = { name: string; title: string; published: boolean; url?: string }
 
 export type Tailscale = {
     installed: boolean
@@ -226,6 +228,8 @@ export type Tailscale = {
     tailnet?: string
     serving: boolean
     serveUrl?: string
+    tags: string[]
+    services: TailscaleService[]
     settings: TailscaleSettings
     suggestedSubnet?: string
     subnetApproved: boolean
@@ -300,10 +304,23 @@ export type AppInstall = {
     log?: string
 }
 
+export type JellyfinAnswers = {
+    nasServer: string
+    nasExport: string
+    moviesFolder: string
+    seriesFolder: string
+    adminUsername: string
+    adminPassword: string
+    theme: boolean
+    storage: string
+}
+
 export type SavedAnswers = {
     answers: MediaStackAnswers
+    jellyfin: JellyfinAnswers
     hasJellyfinApiKey: boolean
     hasJellyfinAdminPassword: boolean
+    hasOpenSubtitlesPassword: boolean
     until: string
 }
 
@@ -313,6 +330,7 @@ export type CatalogApp = {
     description: string
     links: { name: string; description: string; url?: string }[]
     installed: boolean
+    hostUrl?: string
     vmid?: number
     status?: string
     install: AppInstall | null
@@ -325,6 +343,7 @@ export type Apps = {
         storages: string[]
         storage: string
         jellyfinVmid?: number
+        mediaShare?: string
         moviesFolder: string
         seriesFolder: string
         vpnCountries: string
@@ -348,6 +367,8 @@ export type MediaStackAnswers = {
     jellyfinApiKey: string
     jellyfinAdminUsername: string
     jellyfinAdminPassword: string
+    openSubtitlesUsername: string
+    openSubtitlesPassword: string
     restartJellyfin: boolean
     storage: string
     downloadsSize: number
@@ -462,7 +483,12 @@ export const api = {
     logoutTailscale: () => request<void>('POST', '/tailscale/logout'),
     setTailscaleServe: (enabled: boolean) => request<void>('PUT', '/tailscale/serve', { enabled }),
     saveTailscaleSettings: (settings: TailscaleSettings) => request<void>('PUT', '/tailscale/settings', settings),
+    useTailscaleTag: () => request<void>('POST', '/tailscale/tag'),
+    setTailscaleService: ({ name, published }: { name: string; published: boolean }) =>
+        request<void>('PUT', `/tailscale/services/${name}`, { published }),
     apps: () => request<Apps>('GET', '/apps'),
+    installJellyfin: (jellyfin: JellyfinAnswers, keepSecrets = false) =>
+        request<void>('POST', '/apps/jellyfin/install', { jellyfin, keepSecrets }),
     installApp: (id: string, answers: MediaStackAnswers, keepSecrets = false) =>
         request<void>('POST', `/apps/${id}/install`, { ...answers, keepSecrets }),
     retryApp: (id: string) => request<void>('POST', `/apps/${id}/retry`),

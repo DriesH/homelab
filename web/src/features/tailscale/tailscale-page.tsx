@@ -6,6 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { tailscaleQuery } from '@/lib/queries'
 import { ConnectCard } from './connect-card'
 import { ConnectedCard, DeviceList, ServeCard, SubnetCard } from './connected'
+import { ServicesCard } from './services-card'
 
 export function TailscalePage() {
     const { data, error, isPending } = useQuery(tailscaleQuery)
@@ -56,6 +57,7 @@ export function TailscalePage() {
                         <ServeCard tailscale={data} />
                         <SubnetCard key={data.settings.subnet} tailscale={data} />
                     </div>
+                    <ServicesCard tailscale={data} />
                     <section className="flex flex-col gap-3">
                         <h2 className="text-lg font-semibold">Devices</h2>
                         <DeviceList peers={data.peers} />

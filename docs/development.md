@@ -12,7 +12,8 @@ make dev-code   # the current login code, in a second terminal
 Open http://localhost:5173 and log in with `admin` / `homelab-dev-password` and the code from `make dev-code`.
 
 - The fake Proxmox has one node, the manager, Jellyfin, a Docker container and a VM, with disks, storage, backups and tasks.
-- The fake host agent answers update checks, logs, backup jobs and app installs. A media stack install takes a few seconds. The password `failfailfail12` makes it fail.
+- The fake host agent answers update checks, logs and backup jobs. App installs use the real installer of the agent, and only play the install script: it takes a few seconds. The password `failfailfail12` makes an install fail.
+- The fake Proxmox has a Jellyfin container. To try the Jellyfin install, run `touch .dev/no-jellyfin` and reload the Apps page.
 - A fake `tailscale` CLI (`dev/bin/tailscale`) logs in 5 seconds after you click Connect.
 - The console opens a shell on your own computer, not in a container.
 - Everything you change stays in `.dev/`. Delete that folder to start again.

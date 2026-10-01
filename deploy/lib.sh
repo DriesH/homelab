@@ -69,3 +69,60 @@ wait_for_network() {
 container_ip() {
     pct exec "$1" -- hostname -I | awk '{ print $1 }'
 }
+
+# The media share on the host. The media stack and Jellyfin both see it as /data/media.
+MEDIA_MOUNT="/mnt/homelab/media"
+MEDIA_MOUNT_UNIT="mnt-homelab-media.mount"
+
+# mount_media_share mounts NAS_SERVER:NAS_EXPORT at MEDIA_MOUNT. When the share
+# is already mounted from there, it keeps that mount, so the apps that use it
+# notice nothing. It sets CREATED_MOUNT when it wrote the mount unit.
+mount_media_share() {
+    local what="$NAS_SERVER:$NAS_EXPORT" current
+    if systemctl is-active --quiet "$MEDIA_MOUNT_UNIT"; then
+        current="$(systemctl show -p What --value "$MEDIA_MOUNT_UNIT")"
+        if [[ -z "$NAS_SERVER" || "$current" == "$what" ]]; then
+            log "Using the NAS share that is already mounted at $MEDIA_MOUNT ($current)"
+            return 0
+        fi
+        die "the media share is already mounted from $current. Use the same NAS address and export, or leave them empty"
+    fi
+    [[ -n "$NAS_SERVER" && -n "$NAS_EXPORT" ]] || die "give the NAS address and the NFS export of the media share"
+
+    log "Mounting $what at $MEDIA_MOUNT"
+    install -d -m 0755 "$MEDIA_MOUNT"
+    cat >"/etc/systemd/system/$MEDIA_MOUNT_UNIT" <<EOF
+[Unit]
+Description=Homelab media share on the NAS
+After=network-online.target
+Wants=network-online.target
+# Containers bind-mount this folder, so mount it before they start.
+Before=pve-guests.service
+
+[Mount]
+What=$what
+Where=$MEDIA_MOUNT
+Type=nfs
+Options=_netdev,hard,noatime
+
+[Install]
+WantedBy=remote-fs.target
+EOF
+    # shellcheck disable=SC2034 # the installers read it to clean up
+    CREATED_MOUNT=1
+    systemctl daemon-reload
+    systemctl enable "$MEDIA_MOUNT_UNIT"
+    # Restart, not start: a mount from an earlier try keeps old NFS settings and cached answers.
+    systemctl restart "$MEDIA_MOUNT_UNIT" || die "could not mount the NAS share, check that NFS is on in UGOS (Control Panel > File Services > NFS) and that the share has an NFS permission rule for this host"
+}
+
+# check_folders allows two different folder names in the share, and no paths.
+check_folders() {
+    local folder pattern='^[A-Za-z0-9]([A-Za-z0-9 ._-]{0,62}[A-Za-z0-9_-])?$'
+    for folder in "${MOVIES_FOLDER:-}" "${SERIES_FOLDER:-}"; do
+        if [[ ! "$folder" =~ $pattern || "$folder" == *..* ]]; then
+            die "'$folder' is not a folder name, use something like movies or series"
+        fi
+    done
+    [[ "${MOVIES_FOLDER,,}" != "${SERIES_FOLDER,,}" ]] || die "movies and series need different folders"
+}

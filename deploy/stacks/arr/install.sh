@@ -22,9 +22,6 @@ JELLYFIN_CTID=""
 ANSWERS=""
 RESTART_JELLYFIN="y"
 
-# Media share on the host. Both this LXC and Jellyfin get it as /data/media.
-MEDIA_MOUNT="/mnt/homelab/media"
-MEDIA_MOUNT_UNIT="mnt-homelab-media.mount"
 # Unprivileged LXCs shift ids by 100000, and the containers run as uid 1000.
 HOST_CONTAINER_UID=101000
 
@@ -65,13 +62,15 @@ preflight() {
 load_answers() {
     local line key value
     JELLYFIN_API_KEY="" JELLYFIN_ADMIN_USERNAME="" JELLYFIN_ADMIN_PASSWORD=""
+    OPENSUBTITLES_USERNAME="" OPENSUBTITLES_PASSWORD=""
     while IFS= read -r line || [[ -n "$line" ]]; do
         [[ -z "$line" ]] && continue
         key="${line%%=*}" value="${line#*=}"
         case "$key" in
             NAS_SERVER | NAS_EXPORT | MOVIES_FOLDER | SERIES_FOLDER | WIREGUARD_PRIVATE_KEY | VPN_COUNTRIES | \
                 SUBTITLE_LANGUAGES | ARR_USERNAME | ARR_PASSWORD | JELLYFIN_API_KEY | JELLYFIN_ADMIN_USERNAME | \
-                JELLYFIN_ADMIN_PASSWORD | RESTART_JELLYFIN | STORAGE | DOWNLOADS_SIZE)
+                JELLYFIN_ADMIN_PASSWORD | OPENSUBTITLES_USERNAME | OPENSUBTITLES_PASSWORD | RESTART_JELLYFIN | \
+                STORAGE | DOWNLOADS_SIZE)
                 printf -v "$key" '%s' "$value"
                 ;;
             *) die "unknown answer: $key" ;;
@@ -88,17 +87,6 @@ load_answers() {
     else
         JELLYFIN_API_KEY="" JELLYFIN_ADMIN_USERNAME="" JELLYFIN_ADMIN_PASSWORD=""
     fi
-}
-
-# check_folders allows two different folder names in the share, and no paths.
-check_folders() {
-    local folder pattern='^[A-Za-z0-9]([A-Za-z0-9 ._-]{0,62}[A-Za-z0-9_-])?$'
-    for folder in "${MOVIES_FOLDER:-}" "${SERIES_FOLDER:-}"; do
-        if [[ ! "$folder" =~ $pattern || "$folder" == *..* ]]; then
-            die "'$folder' is not a folder name, use something like movies or series"
-        fi
-    done
-    [[ "${MOVIES_FOLDER,,}" != "${SERIES_FOLDER,,}" ]] || die "movies and series need different folders"
 }
 
 ask_settings() {
@@ -122,6 +110,12 @@ ask_settings() {
     ask VPN_COUNTRIES "VPN server countries (comma separated)" "Netherlands"
 
     ask SUBTITLE_LANGUAGES "Subtitle languages (2-letter codes, comma separated)" "en"
+    echo "Optional: an OpenSubtitles.com account finds many more subtitles (free at opensubtitles.com)."
+    ask OPENSUBTITLES_USERNAME "OpenSubtitles.com username (empty to skip)"
+    OPENSUBTITLES_PASSWORD=""
+    if [[ -n "$OPENSUBTITLES_USERNAME" ]]; then
+        ask OPENSUBTITLES_PASSWORD "OpenSubtitles.com password" "" secret
+    fi
 
     echo "One login for Radarr, Sonarr, Prowlarr, Bazarr and qBittorrent:"
     ask ARR_USERNAME "Username" "homelab"
@@ -144,32 +138,7 @@ ask_settings() {
 }
 
 mount_nas() {
-    log "Mounting $NAS_SERVER:$NAS_EXPORT at $MEDIA_MOUNT"
-    install -d -m 0755 "$MEDIA_MOUNT"
-
-    cat >"/etc/systemd/system/$MEDIA_MOUNT_UNIT" <<EOF
-[Unit]
-Description=Homelab media share on the NAS
-After=network-online.target
-Wants=network-online.target
-# Containers bind-mount this folder, so mount it before they start.
-Before=pve-guests.service
-
-[Mount]
-What=$NAS_SERVER:$NAS_EXPORT
-Where=$MEDIA_MOUNT
-Type=nfs
-Options=_netdev,hard,noatime
-
-[Install]
-WantedBy=remote-fs.target
-EOF
-    CREATED_MOUNT=1
-    systemctl daemon-reload
-    systemctl enable "$MEDIA_MOUNT_UNIT"
-    # Restart, not start: a mount from an earlier try keeps old NFS settings and cached answers.
-    systemctl restart "$MEDIA_MOUNT_UNIT" || die "could not mount the NAS share, check that NFS is on in UGOS (Control Panel > File Services > NFS) and that the share has an NFS permission rule for this host"
-
+    mount_media_share
     check_writable
 }
 
@@ -284,6 +253,7 @@ SERIES_FOLDER=$SERIES_FOLDER
 JELLYFIN_URL=$JELLYFIN_URL
 JELLYFIN_API_KEY=$JELLYFIN_API_KEY
 JELLYFIN_ADMIN_USERNAME=$JELLYFIN_ADMIN_USERNAME
+OPENSUBTITLES_USERNAME=$OPENSUBTITLES_USERNAME
 EOF
     pct push "$CT_ID" "$env_file" /opt/arr/.env --perms 0600
 }
@@ -348,7 +318,8 @@ configure_stack() {
     log "Connecting the apps"
     # The full path, because pct sets PATH to /sbin:/bin:/usr/sbin:/usr/bin inside the container.
     # The passwords go on stdin, so they never end up in a file in the container.
-    printf '%s\n%s\n' "$ARR_PASSWORD" "$JELLYFIN_ADMIN_PASSWORD" | pct exec "$CT_ID" -- /usr/local/bin/homelab-arr configure
+    printf '%s\n%s\n%s\n' "$ARR_PASSWORD" "$JELLYFIN_ADMIN_PASSWORD" "$OPENSUBTITLES_PASSWORD" |
+        pct exec "$CT_ID" -- /usr/local/bin/homelab-arr configure
 }
 
 main() {

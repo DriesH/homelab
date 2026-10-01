@@ -15,17 +15,11 @@ import (
 	"homelab/internal/agent"
 )
 
-// failPassword makes the fake media stack install fail, to see the error on the Apps page.
-const failPassword = "failfailfail12"
-
 // fakeAgent answers like the host agent, without touching the host.
 type fakeAgent struct {
 	mu      sync.Mutex
 	jobs    map[string]agent.Job
 	nextJob int
-	install agent.AppInstallStatus
-	// saved are the answers of the last failed install, like the real agent keeps them.
-	saved *agent.MediaStackAnswers
 }
 
 func serveAgent(socket string) error {
@@ -37,7 +31,11 @@ func serveAgent(socket string) error {
 		return err
 	}
 
-	fake := &fakeAgent{jobs: map[string]agent.Job{}, install: agent.AppInstallStatus{State: agent.UpgradeIdle}}
+	fake := &fakeAgent{jobs: map[string]agent.Job{}}
+	installer, err := newAppInstaller()
+	if err != nil {
+		return err
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, agent.Health{Status: "ok", Hostname: "pve", Version: "dev"})
@@ -60,20 +58,7 @@ func serveAgent(socket string) error {
 	mux.HandleFunc("GET /v1/jobs/{id}", fake.job)
 	mux.HandleFunc("GET /v1/logs/journal", journal)
 	mux.HandleFunc("GET /v1/logs/docker", dockerLogs)
-	mux.HandleFunc("GET /v1/apps/install", func(w http.ResponseWriter, r *http.Request) {
-		fake.mu.Lock()
-		defer fake.mu.Unlock()
-		writeJSON(w, fake.install)
-	})
-	mux.HandleFunc("POST /v1/apps/{app}/install", fake.installApp)
-	mux.HandleFunc("POST /v1/apps/{app}/retry", fake.retryApp)
-	mux.HandleFunc("GET /v1/apps/{app}/answers", fake.savedAnswers)
-	mux.HandleFunc("DELETE /v1/apps/{app}/answers", func(w http.ResponseWriter, r *http.Request) {
-		fake.mu.Lock()
-		fake.saved = nil
-		fake.mu.Unlock()
-		w.WriteHeader(http.StatusNoContent)
-	})
+	addAppRoutes(mux, installer)
 	mux.HandleFunc("GET /v1/console/{vmid}", console)
 
 	return http.Serve(listener, mux)
@@ -139,117 +124,6 @@ func (f *fakeAgent) job(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, job)
-}
-
-// installApp plays a media stack install of a few seconds.
-func (f *fakeAgent) installApp(w http.ResponseWriter, r *http.Request) {
-	var request agent.InstallRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	answers := request.MediaStackAnswers
-	f.mu.Lock()
-	if request.KeepSecrets && f.saved != nil {
-		if answers.WireGuardPrivateKey == "" {
-			answers.WireGuardPrivateKey = f.saved.WireGuardPrivateKey
-		}
-		if answers.Password == "" {
-			answers.Password = f.saved.Password
-		}
-		if answers.JellyfinAPIKey == "" {
-			answers.JellyfinAPIKey = f.saved.JellyfinAPIKey
-		}
-		if answers.JellyfinAdminPassword == "" && answers.JellyfinAdminUsername == f.saved.JellyfinAdminUsername {
-			answers.JellyfinAdminPassword = f.saved.JellyfinAdminPassword
-		}
-	}
-	f.mu.Unlock()
-	f.start(w, r.PathValue("app"), answers)
-}
-
-func (f *fakeAgent) retryApp(w http.ResponseWriter, r *http.Request) {
-	f.mu.Lock()
-	saved := f.saved
-	f.mu.Unlock()
-	if saved == nil {
-		http.Error(w, agent.ErrNoSavedAnswers.Error(), http.StatusBadRequest)
-		return
-	}
-	f.start(w, r.PathValue("app"), *saved)
-}
-
-func (f *fakeAgent) savedAnswers(w http.ResponseWriter, r *http.Request) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.saved == nil {
-		writeJSON(w, nil)
-		return
-	}
-
-	answers := *f.saved
-	view := agent.SavedAnswers{
-		HasJellyfinAPIKey:        answers.JellyfinAPIKey != "",
-		HasJellyfinAdminPassword: answers.JellyfinAdminPassword != "",
-		Until:                    f.install.StartedAt.Add(agent.SavedAnswersTTL),
-	}
-	answers.WireGuardPrivateKey, answers.Password, answers.JellyfinAPIKey, answers.JellyfinAdminPassword = "", "", "", ""
-	view.Answers = answers
-	writeJSON(w, view)
-}
-
-func (f *fakeAgent) start(w http.ResponseWriter, app string, answers agent.MediaStackAnswers) {
-	if err := answers.Validate(); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	f.mu.Lock()
-	if f.install.State == agent.UpgradeRunning {
-		f.mu.Unlock()
-		http.Error(w, agent.ErrAppInstallRunning.Error(), http.StatusConflict)
-		return
-	}
-	f.install = agent.AppInstallStatus{App: app, State: agent.UpgradeRunning, StartedAt: time.Now()}
-	f.saved = &answers
-	f.mu.Unlock()
-
-	go f.playInstall(answers)
-	w.WriteHeader(http.StatusAccepted)
-}
-
-func (f *fakeAgent) playInstall(answers agent.MediaStackAnswers) {
-	steps := []string{
-		"==> Mounting " + answers.NASServer + ":" + answers.NASExport + " at /mnt/homelab/media",
-		"==> Downloading Debian 13 template",
-		"==> Creating container 130 (media)",
-		"==> Installing Docker",
-		"==> Starting the stack (the first image download takes a few minutes)",
-		"==> Waiting for the VPN",
-	}
-	if answers.JellyfinAdminUsername != "" {
-		steps = append(steps, "==> Configuring Seerr")
-	}
-	for _, step := range steps {
-		time.Sleep(time.Second)
-		f.mu.Lock()
-		f.install.Log += step + "\n"
-		f.mu.Unlock()
-	}
-
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.install.FinishedAt = time.Now()
-	if answers.Password == failPassword {
-		f.install.Log += "error: the VPN did not connect, check the WireGuard key\n==> The install failed, removing container 130\n"
-		f.install.State, f.install.Message = agent.UpgradeFailed, "the installer stopped with exit code 1"
-		return
-	}
-	f.saved = nil
-	f.install.Log += "==> Connecting the apps\n==> Done\n"
-	f.install.State, f.install.VMID, f.install.IP = agent.UpgradeSucceeded, 130, "192.168.1.150"
-	os.WriteFile(statePath("media-installed"), nil, 0o600)
 }
 
 func journal(w http.ResponseWriter, r *http.Request) {
