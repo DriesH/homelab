@@ -68,6 +68,10 @@ type MediaStackAnswers struct {
 	// the installer also does the setup of Seerr.
 	JellyfinAdminUsername string `json:"jellyfinAdminUsername"`
 	JellyfinAdminPassword string `json:"jellyfinAdminPassword"`
+	// OpenSubtitlesUsername and OpenSubtitlesPassword are optional. With them,
+	// Bazarr also uses OpenSubtitles.com.
+	OpenSubtitlesUsername string `json:"openSubtitlesUsername"`
+	OpenSubtitlesPassword string `json:"openSubtitlesPassword"`
 	RestartJellyfin       bool   `json:"restartJellyfin"`
 	Storage               string `json:"storage"`
 	// DownloadsSize is the size of the downloads disk in GB.
@@ -104,6 +108,12 @@ func (a MediaStackAnswers) Validate() error {
 		return invalid("give both the Jellyfin admin username and password, or neither")
 	case len(a.JellyfinAdminPassword) > 256 || strings.ContainsFunc(a.JellyfinAdminPassword, unicode.IsControl):
 		return invalid("the Jellyfin admin password can't have line breaks")
+	case a.OpenSubtitlesUsername != "" && !usernamePattern.MatchString(a.OpenSubtitlesUsername):
+		return invalid("the OpenSubtitles.com username can have letters, digits, dots, dashes and underscores")
+	case (a.OpenSubtitlesUsername == "") != (a.OpenSubtitlesPassword == ""):
+		return invalid("give both the OpenSubtitles.com username and password, or neither")
+	case len(a.OpenSubtitlesPassword) > 256 || strings.ContainsFunc(a.OpenSubtitlesPassword, unicode.IsControl):
+		return invalid("the OpenSubtitles.com password can't have line breaks")
 	case !storageID.MatchString(a.Storage):
 		return invalid("invalid storage")
 	case a.DownloadsSize < 10 || a.DownloadsSize > 10000:
@@ -137,6 +147,8 @@ func (a MediaStackAnswers) file() string {
 		"JELLYFIN_API_KEY=" + a.JellyfinAPIKey,
 		"JELLYFIN_ADMIN_USERNAME=" + a.JellyfinAdminUsername,
 		"JELLYFIN_ADMIN_PASSWORD=" + a.JellyfinAdminPassword,
+		"OPENSUBTITLES_USERNAME=" + a.OpenSubtitlesUsername,
+		"OPENSUBTITLES_PASSWORD=" + a.OpenSubtitlesPassword,
 		"RESTART_JELLYFIN=" + restart,
 		"STORAGE=" + a.Storage,
 		"DOWNLOADS_SIZE=" + strconv.Itoa(a.DownloadsSize),
@@ -159,6 +171,7 @@ type SavedAnswers struct {
 	HasJellyfinAPIKey bool              `json:"hasJellyfinApiKey"`
 	// HasJellyfinAdminPassword is set when the saved answers have a Jellyfin admin password.
 	HasJellyfinAdminPassword bool      `json:"hasJellyfinAdminPassword"`
+	HasOpenSubtitlesPassword bool      `json:"hasOpenSubtitlesPassword"`
 	Until                    time.Time `json:"until"`
 }
 
@@ -237,6 +250,9 @@ func (i *AppInstaller) Install(app string, request InstallRequest) error {
 		// Only for the same admin: a new username needs its own password.
 		if answers.JellyfinAdminPassword == "" && answers.JellyfinAdminUsername == saved.JellyfinAdminUsername {
 			answers.JellyfinAdminPassword = saved.JellyfinAdminPassword
+		}
+		if answers.OpenSubtitlesPassword == "" && answers.OpenSubtitlesUsername == saved.OpenSubtitlesUsername {
+			answers.OpenSubtitlesPassword = saved.OpenSubtitlesPassword
 		}
 	}
 
@@ -374,9 +390,11 @@ func (i *AppInstaller) Saved(app string) (*SavedAnswers, error) {
 	view := &SavedAnswers{
 		HasJellyfinAPIKey:        answers.JellyfinAPIKey != "",
 		HasJellyfinAdminPassword: answers.JellyfinAdminPassword != "",
+		HasOpenSubtitlesPassword: answers.OpenSubtitlesPassword != "",
 		Until:                    file.SavedAt.Add(SavedAnswersTTL),
 	}
-	answers.WireGuardPrivateKey, answers.Password, answers.JellyfinAPIKey, answers.JellyfinAdminPassword = "", "", "", ""
+	answers.WireGuardPrivateKey, answers.Password, answers.JellyfinAPIKey = "", "", ""
+	answers.JellyfinAdminPassword, answers.OpenSubtitlesPassword = "", ""
 	view.Answers = answers
 
 	return view, nil

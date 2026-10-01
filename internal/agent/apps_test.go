@@ -23,6 +23,8 @@ func validAnswers() MediaStackAnswers {
 		JellyfinAPIKey:        "0123456789abcdef0123456789abcdef",
 		JellyfinAdminUsername: "Dries H",
 		JellyfinAdminPassword: "jelly pass",
+		OpenSubtitlesUsername: "dries_h",
+		OpenSubtitlesPassword: "subs pass",
 		RestartJellyfin:       true,
 		Storage:               "local-lvm",
 		DownloadsSize:         200,
@@ -35,26 +37,28 @@ func TestMediaStackAnswersValidate(t *testing.T) {
 	}
 
 	for name, change := range map[string]func(*MediaStackAnswers){
-		"NAS with space":         func(a *MediaStackAnswers) { a.NASServer = "nas local" },
-		"export not absolute":    func(a *MediaStackAnswers) { a.NASExport = "volume1" },
-		"export with newline":    func(a *MediaStackAnswers) { a.NASExport = "/media\nARR_PASSWORD=x" },
-		"short key":              func(a *MediaStackAnswers) { a.WireGuardPrivateKey = "abc=" },
-		"folder with slash":      func(a *MediaStackAnswers) { a.MoviesFolder = "media/movies" },
-		"folder up":              func(a *MediaStackAnswers) { a.SeriesFolder = ".." },
-		"folder newline":         func(a *MediaStackAnswers) { a.MoviesFolder = "movies\nARR_PASSWORD=x" },
-		"same folders":           func(a *MediaStackAnswers) { a.SeriesFolder = "Movies" },
-		"empty folder":           func(a *MediaStackAnswers) { a.MoviesFolder = "" },
-		"admin without password": func(a *MediaStackAnswers) { a.JellyfinAdminPassword = "" },
-		"admin password newline": func(a *MediaStackAnswers) { a.JellyfinAdminPassword = "a\nARR_PASSWORD=x" },
-		"admin name with slash":  func(a *MediaStackAnswers) { a.JellyfinAdminUsername = "a/b" },
-		"country with digits":    func(a *MediaStackAnswers) { a.VPNCountries = "NL1" },
-		"language too long":      func(a *MediaStackAnswers) { a.SubtitleLanguages = "eng" },
-		"username with space":    func(a *MediaStackAnswers) { a.Username = "my user" },
-		"short password":         func(a *MediaStackAnswers) { a.Password = "short" },
-		"password newline":       func(a *MediaStackAnswers) { a.Password = "correct horse\nbattery" },
-		"bad api key":            func(a *MediaStackAnswers) { a.JellyfinAPIKey = "not-a-key" },
-		"bad storage":            func(a *MediaStackAnswers) { a.Storage = "a;b" },
-		"tiny downloads":         func(a *MediaStackAnswers) { a.DownloadsSize = 1 },
+		"NAS with space":             func(a *MediaStackAnswers) { a.NASServer = "nas local" },
+		"export not absolute":        func(a *MediaStackAnswers) { a.NASExport = "volume1" },
+		"export with newline":        func(a *MediaStackAnswers) { a.NASExport = "/media\nARR_PASSWORD=x" },
+		"short key":                  func(a *MediaStackAnswers) { a.WireGuardPrivateKey = "abc=" },
+		"folder with slash":          func(a *MediaStackAnswers) { a.MoviesFolder = "media/movies" },
+		"folder up":                  func(a *MediaStackAnswers) { a.SeriesFolder = ".." },
+		"folder newline":             func(a *MediaStackAnswers) { a.MoviesFolder = "movies\nARR_PASSWORD=x" },
+		"same folders":               func(a *MediaStackAnswers) { a.SeriesFolder = "Movies" },
+		"empty folder":               func(a *MediaStackAnswers) { a.MoviesFolder = "" },
+		"admin without password":     func(a *MediaStackAnswers) { a.JellyfinAdminPassword = "" },
+		"admin password newline":     func(a *MediaStackAnswers) { a.JellyfinAdminPassword = "a\nARR_PASSWORD=x" },
+		"admin name with slash":      func(a *MediaStackAnswers) { a.JellyfinAdminUsername = "a/b" },
+		"subtitles without password": func(a *MediaStackAnswers) { a.OpenSubtitlesPassword = "" },
+		"subtitles name with space":  func(a *MediaStackAnswers) { a.OpenSubtitlesUsername = "dries h" },
+		"country with digits":        func(a *MediaStackAnswers) { a.VPNCountries = "NL1" },
+		"language too long":          func(a *MediaStackAnswers) { a.SubtitleLanguages = "eng" },
+		"username with space":        func(a *MediaStackAnswers) { a.Username = "my user" },
+		"short password":             func(a *MediaStackAnswers) { a.Password = "short" },
+		"password newline":           func(a *MediaStackAnswers) { a.Password = "correct horse\nbattery" },
+		"bad api key":                func(a *MediaStackAnswers) { a.JellyfinAPIKey = "not-a-key" },
+		"bad storage":                func(a *MediaStackAnswers) { a.Storage = "a;b" },
+		"tiny downloads":             func(a *MediaStackAnswers) { a.DownloadsSize = 1 },
 	} {
 		answers := validAnswers()
 		change(&answers)
@@ -195,7 +199,7 @@ func TestAppRetryUsesTheSavedAnswers(t *testing.T) {
 	if err != nil || saved == nil {
 		t.Fatalf("saved = %v, err = %v", saved, err)
 	}
-	if saved.Answers.WireGuardPrivateKey != "" || saved.Answers.Password != "" || saved.Answers.JellyfinAPIKey != "" || saved.Answers.JellyfinAdminPassword != "" {
+	if saved.Answers.WireGuardPrivateKey != "" || saved.Answers.Password != "" || saved.Answers.JellyfinAPIKey != "" || saved.Answers.JellyfinAdminPassword != "" || saved.Answers.OpenSubtitlesPassword != "" || !saved.HasOpenSubtitlesPassword {
 		t.Fatalf("the view has secrets: %+v", saved.Answers)
 	}
 	if saved.Answers.NASServer != "192.168.1.5" || !saved.HasJellyfinAPIKey || !saved.HasJellyfinAdminPassword || saved.Answers.JellyfinAdminUsername != "Dries H" || !saved.Until.Equal(now.Add(SavedAnswersTTL)) {
@@ -222,7 +226,7 @@ func TestAppRetryUsesTheSavedAnswers(t *testing.T) {
 		t.Fatal(err)
 	}
 	answers, _ = os.ReadFile(unit.started[len(unit.started)-1])
-	for _, line := range []string{"NAS_EXPORT=/volume1/Media\n", "ARR_PASSWORD=correct horse battery\n", "JELLYFIN_ADMIN_PASSWORD=jelly pass\n", "WIREGUARD_PRIVATE_KEY=" + validAnswers().WireGuardPrivateKey + "\n"} {
+	for _, line := range []string{"NAS_EXPORT=/volume1/Media\n", "ARR_PASSWORD=correct horse battery\n", "JELLYFIN_ADMIN_PASSWORD=jelly pass\n", "OPENSUBTITLES_PASSWORD=subs pass\n", "WIREGUARD_PRIVATE_KEY=" + validAnswers().WireGuardPrivateKey + "\n"} {
 		if !strings.Contains(string(answers), line) {
 			t.Fatalf("answers miss %q:\n%s", line, answers)
 		}

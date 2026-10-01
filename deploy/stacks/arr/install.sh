@@ -65,13 +65,15 @@ preflight() {
 load_answers() {
     local line key value
     JELLYFIN_API_KEY="" JELLYFIN_ADMIN_USERNAME="" JELLYFIN_ADMIN_PASSWORD=""
+    OPENSUBTITLES_USERNAME="" OPENSUBTITLES_PASSWORD=""
     while IFS= read -r line || [[ -n "$line" ]]; do
         [[ -z "$line" ]] && continue
         key="${line%%=*}" value="${line#*=}"
         case "$key" in
             NAS_SERVER | NAS_EXPORT | MOVIES_FOLDER | SERIES_FOLDER | WIREGUARD_PRIVATE_KEY | VPN_COUNTRIES | \
                 SUBTITLE_LANGUAGES | ARR_USERNAME | ARR_PASSWORD | JELLYFIN_API_KEY | JELLYFIN_ADMIN_USERNAME | \
-                JELLYFIN_ADMIN_PASSWORD | RESTART_JELLYFIN | STORAGE | DOWNLOADS_SIZE)
+                JELLYFIN_ADMIN_PASSWORD | OPENSUBTITLES_USERNAME | OPENSUBTITLES_PASSWORD | RESTART_JELLYFIN | \
+                STORAGE | DOWNLOADS_SIZE)
                 printf -v "$key" '%s' "$value"
                 ;;
             *) die "unknown answer: $key" ;;
@@ -122,6 +124,12 @@ ask_settings() {
     ask VPN_COUNTRIES "VPN server countries (comma separated)" "Netherlands"
 
     ask SUBTITLE_LANGUAGES "Subtitle languages (2-letter codes, comma separated)" "en"
+    echo "Optional: an OpenSubtitles.com account finds many more subtitles (free at opensubtitles.com)."
+    ask OPENSUBTITLES_USERNAME "OpenSubtitles.com username (empty to skip)"
+    OPENSUBTITLES_PASSWORD=""
+    if [[ -n "$OPENSUBTITLES_USERNAME" ]]; then
+        ask OPENSUBTITLES_PASSWORD "OpenSubtitles.com password" "" secret
+    fi
 
     echo "One login for Radarr, Sonarr, Prowlarr, Bazarr and qBittorrent:"
     ask ARR_USERNAME "Username" "homelab"
@@ -284,6 +292,7 @@ SERIES_FOLDER=$SERIES_FOLDER
 JELLYFIN_URL=$JELLYFIN_URL
 JELLYFIN_API_KEY=$JELLYFIN_API_KEY
 JELLYFIN_ADMIN_USERNAME=$JELLYFIN_ADMIN_USERNAME
+OPENSUBTITLES_USERNAME=$OPENSUBTITLES_USERNAME
 EOF
     pct push "$CT_ID" "$env_file" /opt/arr/.env --perms 0600
 }
@@ -348,7 +357,8 @@ configure_stack() {
     log "Connecting the apps"
     # The full path, because pct sets PATH to /sbin:/bin:/usr/sbin:/usr/bin inside the container.
     # The passwords go on stdin, so they never end up in a file in the container.
-    printf '%s\n%s\n' "$ARR_PASSWORD" "$JELLYFIN_ADMIN_PASSWORD" | pct exec "$CT_ID" -- /usr/local/bin/homelab-arr configure
+    printf '%s\n%s\n%s\n' "$ARR_PASSWORD" "$JELLYFIN_ADMIN_PASSWORD" "$OPENSUBTITLES_PASSWORD" |
+        pct exec "$CT_ID" -- /usr/local/bin/homelab-arr configure
 }
 
 main() {
