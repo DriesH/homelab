@@ -34,6 +34,8 @@ type Proxmox interface {
 	Resources(ctx context.Context) ([]proxmox.Resource, error)
 	NodeStatus(ctx context.Context, node string) (proxmox.NodeStatus, error)
 	RunGuestAction(ctx context.Context, node string, guestType proxmox.GuestType, vmid int, action proxmox.GuestAction) (string, error)
+	NodeUsage(ctx context.Context, node string, timeframe proxmox.Timeframe) ([]proxmox.UsagePoint, error)
+	GuestUsage(ctx context.Context, node string, guestType proxmox.GuestType, vmid int, timeframe proxmox.Timeframe) ([]proxmox.UsagePoint, error)
 	Tasks(ctx context.Context, node string, limit int) ([]proxmox.Task, error)
 	TaskLog(ctx context.Context, node, upid string, limit int) ([]string, error)
 }
@@ -158,6 +160,8 @@ func New(options Options) http.Handler {
 	mux.Handle("GET /api/auth/me", s.requireSession(http.HandlerFunc(s.me)))
 	mux.Handle("GET /api/overview", s.requireSession(http.HandlerFunc(s.overview)))
 	mux.Handle("POST /api/guests/{node}/{type}/{vmid}/{action}", s.requireSession(http.HandlerFunc(s.guestAction)))
+	mux.Handle("GET /api/usage/{node}", s.requireSession(http.HandlerFunc(s.nodeUsage)))
+	mux.Handle("GET /api/usage/{node}/{type}/{vmid}", s.requireSession(http.HandlerFunc(s.guestUsage)))
 	mux.Handle("GET /api/updates", s.requireSession(http.HandlerFunc(s.updatesStatus)))
 	mux.Handle("GET /api/updates/runs/{id}", s.requireSession(http.HandlerFunc(s.updatesRun)))
 	mux.Handle("POST /api/updates/check", s.requireSession(http.HandlerFunc(s.updatesCheck)))
