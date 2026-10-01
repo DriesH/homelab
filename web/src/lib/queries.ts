@@ -66,6 +66,7 @@ export const backupsQuery = queryOptions({
 export const appsQuery = queryOptions({
     queryKey: ['apps'],
     queryFn: api.apps,
-    // Poll fast during an install, for the live log.
-    refetchInterval: (query) => (query.state.data?.apps.some((app) => app.install?.state === 'running') ? 2000 : 30000),
+    // Poll fast during an install, update or removal, for the live log.
+    refetchInterval: (query) =>
+        query.state.data?.apps.some((app) => app.operation?.state === 'running') ? 2000 : 30000,
 })
