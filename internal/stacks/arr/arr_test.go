@@ -160,3 +160,19 @@ func TestJellyfinLibrariesUseTheFolders(t *testing.T) {
 		t.Fatalf("default libraries = %+v", libraries)
 	}
 }
+
+func TestBazarrFormAddsOpenSubtitles(t *testing.T) {
+	form := bazarrForm(Config{Username: "homelab"}, "[]")
+	if providers := form["settings-general-enabled_providers"]; len(providers) != 2 || form.Has("settings-opensubtitlescom-username") {
+		t.Fatalf("without an account: %v", form)
+	}
+
+	form = bazarrForm(Config{Username: "homelab", OpenSubtitlesUsername: "dries", OpenSubtitlesPassword: "subs pass"}, "[]")
+	providers := form["settings-general-enabled_providers"]
+	if len(providers) != 3 || providers[2] != "opensubtitlescom" {
+		t.Fatalf("providers = %v", providers)
+	}
+	if form.Get("settings-opensubtitlescom-username") != "dries" || form.Get("settings-opensubtitlescom-password") != "subs pass" {
+		t.Fatalf("form = %v", form)
+	}
+}

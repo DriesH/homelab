@@ -47,6 +47,10 @@ type Config struct {
 	JellyfinURL         string
 	JellyfinInternalURL string
 	JellyfinAPIKey      string
+	// Optional. With an OpenSubtitles.com account, Bazarr also uses that source.
+	OpenSubtitlesUsername string
+	OpenSubtitlesPassword string
+
 	// Optional. With a Jellyfin admin, this tool also does the setup of Seerr.
 	JellyfinAdminUsername string
 	JellyfinAdminPassword string
@@ -351,6 +355,12 @@ func configureBazarr(ctx context.Context, cfg Config, client *http.Client) error
 		return err
 	}
 
+	return app.saveSettings(ctx, bazarrForm(cfg, profiles))
+}
+
+// bazarrForm is the settings form of Bazarr: logins, Radarr and Sonarr,
+// languages and subtitle sources.
+func bazarrForm(cfg Config, profiles string) url.Values {
 	form := url.Values{
 		"settings-auth-type":     {"form"},
 		"settings-auth-username": {cfg.Username},
@@ -376,7 +386,13 @@ func configureBazarr(ctx context.Context, cfg Config, client *http.Client) error
 		"settings-general-enabled_providers": {"embeddedsubtitles", "podnapisi"},
 	}
 
-	return app.saveSettings(ctx, form)
+	if cfg.OpenSubtitlesUsername != "" {
+		form.Add("settings-general-enabled_providers", "opensubtitlescom")
+		form.Set("settings-opensubtitlescom-username", cfg.OpenSubtitlesUsername)
+		form.Set("settings-opensubtitlescom-password", cfg.OpenSubtitlesPassword)
+	}
+
+	return form
 }
 
 func configureJellyfin(ctx context.Context, cfg Config, client *http.Client) error {
