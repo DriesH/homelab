@@ -10,9 +10,11 @@ case "$1 $2" in
     if [[ "$state" == Running ]]; then
         routes="[]"
         [[ -f "$dir/routes" ]] && routes="[\"$(cat "$dir/routes")\"]"
+        tags="[]"
+        [[ -f "$dir/tagged" ]] && tags='["tag:homelab"]'
         cat <<JSON
 {"BackendState":"Running","AuthURL":"","Health":[],
- "Self":{"HostName":"homelab","DNSName":"homelab.tail1234.ts.net.","TailscaleIPs":["100.101.102.103"],"PrimaryRoutes":$routes},
+ "Self":{"HostName":"homelab","DNSName":"homelab.tail1234.ts.net.","TailscaleIPs":["100.101.102.103"],"PrimaryRoutes":$routes,"Tags":$tags},
  "CurrentTailnet":{"Name":"you@example.com"},
  "Peer":{"1":{"HostName":"iphone","DNSName":"iphone.tail1234.ts.net.","OS":"iOS","TailscaleIPs":["100.90.1.2"],"Online":true},
          "2":{"HostName":"macbook","DNSName":"macbook.tail1234.ts.net.","OS":"macOS","TailscaleIPs":["100.90.1.3"],"Online":false,"LastSeen":"2026-09-29T20:00:00Z"}}}
@@ -26,10 +28,18 @@ JSON
     ;;
 "up --reset")
     rm -f "$dir/routes"
+    tag="" reauth=""
     for arg in "$@"; do
         [[ "$arg" == --advertise-routes=* ]] && echo "${arg#*=}" >"$dir/routes"
+        [[ "$arg" == --advertise-tags=* ]] && tag=1
+        [[ "$arg" == --force-reauth ]] && reauth=1
     done
-    [[ "$state" == Running ]] && exit 0
+    if [[ "$state" == Running && -z "$reauth" ]]; then
+        exit 0
+    fi
+    # A login with a tag needs a new login, like the real CLI.
+    if [[ -n "$tag" ]]; then touch "$dir/tagged"; else rm -f "$dir/tagged"; fi
+    echo NeedsLogin >"$dir/state"
     touch "$dir/pending"
     printf '\nTo authenticate, visit:\n\n\thttps://login.tailscale.com/a/dev\n'
     sleep 5
@@ -38,7 +48,24 @@ JSON
     echo Success.
     ;;
 "serve status")
-    if [[ -f "$dir/serving" ]]; then echo '{"TCP":{"443":{"HTTPS":true}},"Web":{"homelab.tail1234.ts.net:443":{}}}'; else echo '{}'; fi
+    services="{}"
+    if compgen -G "$dir/svc-*" >/dev/null; then
+        services="{$(for file in "$dir"/svc-*; do printf '"svc:%s":{"TCP":{"443":{"HTTPS":true}}},' "${file##*/svc-}"; done | sed 's/,$//')}"
+    fi
+    if [[ -f "$dir/serving" ]]; then
+        echo "{\"TCP\":{\"443\":{\"HTTPS\":true}},\"Web\":{\"homelab.tail1234.ts.net:443\":{}},\"Services\":$services}"
+    else
+        echo "{\"Services\":$services}"
+    fi
+    ;;
+"serve --service="*)
+    [[ -f "$dir/tagged" ]] || { echo "service hosts must be tagged" >&2; exit 1; }
+    name="${2#--service=svc:}"
+    touch "$dir/svc-$name"
+    echo "Available within your tailnet: https://$name.tail1234.ts.net/"
+    ;;
+"serve clear")
+    rm -f "$dir/svc-${3#svc:}"
     ;;
 "serve --bg")
     touch "$dir/serving"
