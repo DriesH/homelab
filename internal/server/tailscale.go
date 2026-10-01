@@ -50,6 +50,22 @@ func (s *server) tailscaleSettings(w http.ResponseWriter, r *http.Request) {
 	s.writeTailscaleResult(w, s.Tailscale.SaveSettings(r.Context(), input))
 }
 
+func (s *server) tailscaleUseTag(w http.ResponseWriter, r *http.Request) {
+	s.writeTailscaleResult(w, s.Tailscale.UseTag(s.Background))
+}
+
+func (s *server) tailscaleService(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Published bool `json:"published"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	s.writeTailscaleResult(w, s.Tailscale.SetService(r.Context(), r.PathValue("name"), input.Published))
+}
+
 // writeTailscaleResult passes Tailscale's own message on, because it tells the user what to do.
 func (s *server) writeTailscaleResult(w http.ResponseWriter, err error) {
 	switch {

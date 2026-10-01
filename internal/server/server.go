@@ -92,6 +92,8 @@ type Tailscale interface {
 	Logout(ctx context.Context) error
 	SetServe(ctx context.Context, enabled bool) error
 	SaveSettings(ctx context.Context, settings tailscale.Settings) error
+	UseTag(background context.Context) error
+	SetService(ctx context.Context, name string, published bool) error
 }
 
 type Backups interface {
@@ -181,6 +183,8 @@ func New(options Options) http.Handler {
 	mux.Handle("POST /api/tailscale/logout", s.requireSession(http.HandlerFunc(s.tailscaleLogout)))
 	mux.Handle("PUT /api/tailscale/serve", s.requireSession(http.HandlerFunc(s.tailscaleServe)))
 	mux.Handle("PUT /api/tailscale/settings", s.requireSession(http.HandlerFunc(s.tailscaleSettings)))
+	mux.Handle("POST /api/tailscale/tag", s.requireSession(http.HandlerFunc(s.tailscaleUseTag)))
+	mux.Handle("PUT /api/tailscale/services/{name}", s.requireSession(http.HandlerFunc(s.tailscaleService)))
 	mux.Handle("GET /api/backups", s.requireSession(http.HandlerFunc(s.backupsStatus)))
 	mux.Handle("PUT /api/backups/job", s.requireSession(http.HandlerFunc(s.backupsSaveJob)))
 	mux.Handle("POST /api/backups/guests/{vmid}", s.requireSession(http.HandlerFunc(s.backupsBackUp)))

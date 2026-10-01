@@ -132,9 +132,10 @@ func serve() error {
 	go backupService.RunMonitor(ctx)
 
 	tailscaleService, err := tailscale.New(tailscale.Options{
-		DataDir: cfg.DataDir,
-		Backend: serveBackend(cfg),
-		Logger:  logger,
+		DataDir:  cfg.DataDir,
+		Backend:  serveBackend(cfg),
+		Logger:   logger,
+		Services: tailnetServices(),
 	})
 	if err != nil {
 		return err
@@ -199,9 +200,15 @@ func serve() error {
 	// the checks of Homelab's own pages.
 	handler = appProxy.Handler(handler)
 
+	// Tailscale Services forward to these, one listener per app.
+	servers := []*http.Server{}
+	for _, app := range tailnetApps {
+		servers = append(servers, newServer(app.addr, appProxy.App(app.name)))
+	}
+
 	if cfg.Dev {
 		logger.Warn("dev mode: serving plain HTTP", "addr", cfg.HTTPAddr)
-		return stopReason(restartCtx, run(ctx, newServer(cfg.HTTPAddr, handler)))
+		return stopReason(restartCtx, runAll(ctx, append(servers, newServer(cfg.HTTPAddr, handler))))
 	}
 
 	authority, err := tlsca.Load(filepath.Join(cfg.DataDir, "tls"), cfg.Hostname, appProxy.Hostnames()...)
@@ -216,11 +223,33 @@ func serve() error {
 
 	logger.Info("listening", "https", cfg.HTTPSAddr, "http", cfg.HTTPAddr, "hostname", cfg.Hostname, "version", version)
 
-	group, ctx := errgroup.WithContext(ctx)
-	group.Go(func() error { return run(ctx, httpsServer) })
-	group.Go(func() error { return run(ctx, httpServer) })
+	return stopReason(restartCtx, runAll(ctx, append(servers, httpsServer, httpServer)))
+}
 
-	return stopReason(restartCtx, group.Wait())
+// tailnetApps are the apps that can be Tailscale Services, like
+// https://seerr.<tailnet>.ts.net. Their listeners only take local connections.
+var tailnetApps = []struct{ name, title, addr string }{
+	{"seerr", "Seerr", "127.0.0.1:18081"},
+	{"jellyfin", "Jellyfin", "127.0.0.1:18082"},
+}
+
+func tailnetServices() []tailscale.AppService {
+	services := make([]tailscale.AppService, 0, len(tailnetApps))
+	for _, app := range tailnetApps {
+		services = append(services, tailscale.AppService{Name: app.name, Title: app.title, Backend: "http://" + app.addr})
+	}
+
+	return services
+}
+
+// runAll runs the servers until ctx ends or one of them fails.
+func runAll(ctx context.Context, servers []*http.Server) error {
+	group, ctx := errgroup.WithContext(ctx)
+	for _, srv := range servers {
+		group.Go(func() error { return run(ctx, srv) })
+	}
+
+	return group.Wait()
 }
 
 // errRestart makes the process exit with an error, so systemd starts it again.
