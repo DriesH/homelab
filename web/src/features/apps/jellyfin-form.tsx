@@ -12,6 +12,7 @@ import { api, type Apps, type JellyfinAnswers, type SavedAnswers } from '@/lib/a
 import { appsQuery } from '@/lib/queries'
 import { Field, Section } from './form-parts'
 import { keepSaved } from './keep-saved'
+import { MediaSourceFields } from './media-source'
 
 type JellyfinFormProps = {
     defaults: Apps['defaults']
@@ -21,13 +22,14 @@ type JellyfinFormProps = {
 
 export function JellyfinForm({ defaults, saved, onDone }: JellyfinFormProps) {
     const queryClient = useQueryClient()
-    // The share of the media stack is used as it is.
+    // Media that is already mounted is used as it is.
     const shareMounted = Boolean(defaults.mediaShare)
     const [answers, setAnswers] = useState<JellyfinAnswers>(
         () =>
             saved?.jellyfin ?? {
                 nasServer: '',
                 nasExport: '',
+                mediaFolder: '',
                 moviesFolder: defaults.moviesFolder,
                 seriesFolder: defaults.seriesFolder,
                 adminUsername: 'admin',
@@ -39,7 +41,10 @@ export function JellyfinForm({ defaults, saved, onDone }: JellyfinFormProps) {
 
     const install = useMutation({
         mutationFn: () =>
-            api.installJellyfin(shareMounted ? { ...answers, nasServer: '', nasExport: '' } : answers, saved !== null),
+            api.installJellyfin(
+                shareMounted ? { ...answers, nasServer: '', nasExport: '', mediaFolder: '' } : answers,
+                saved !== null,
+            ),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: appsQuery.queryKey })
             toast.success('The install started')
@@ -59,59 +64,37 @@ export function JellyfinForm({ defaults, saved, onDone }: JellyfinFormProps) {
 
     const storages = Object.fromEntries(defaults.storages.map((name) => [name, name]))
     const passwordSaved = saved?.hasJellyfinAdminPassword && answers.adminUsername === saved.jellyfin.adminUsername
-    const share = shareMounted ? defaults.mediaShare : `${answers.nasServer || 'NAS'}:${answers.nasExport || '/…'}`
 
     return (
         <form className="flex flex-col gap-6" onSubmit={handleSubmit}>
-            <Section
-                title="NAS"
-                help="Jellyfin reads your movies and series from the NFS share, and never writes to it."
+            <MediaSourceFields
+                id="jf"
+                defaults={defaults}
+                value={answers}
+                onChange={(value) => setAnswers((current) => ({ ...current, ...value }))}
+                help="Jellyfin reads your movies and series from here, and never writes to it."
             >
-                {shareMounted ? (
-                    <p className="text-sm">
-                        Uses the share that is already mounted: <span className="font-mono">{defaults.mediaShare}</span>
-                    </p>
-                ) : (
-                    <>
-                        <Field id="jf-nas-server" label="Address">
+                {(path) => (
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        <Field id="jf-movies" label="Movies folder" help={`${path}/${answers.moviesFolder}`}>
                             <Input
-                                id="jf-nas-server"
-                                placeholder="192.168.1.5"
-                                value={answers.nasServer}
-                                onChange={(event) => set('nasServer', event.target.value.trim())}
+                                id="jf-movies"
+                                value={answers.moviesFolder}
+                                onChange={(event) => set('moviesFolder', event.target.value)}
                                 required
                             />
                         </Field>
-                        <Field id="jf-nas-export" label="NFS export path" help="UGOS shows it on the NFS page.">
+                        <Field id="jf-series" label="Series folder" help={`${path}/${answers.seriesFolder}`}>
                             <Input
-                                id="jf-nas-export"
-                                placeholder="/volume1/media"
-                                value={answers.nasExport}
-                                onChange={(event) => set('nasExport', event.target.value.trim())}
+                                id="jf-series"
+                                value={answers.seriesFolder}
+                                onChange={(event) => set('seriesFolder', event.target.value)}
                                 required
                             />
                         </Field>
-                    </>
+                    </div>
                 )}
-                <div className="grid gap-4 sm:grid-cols-2">
-                    <Field id="jf-movies" label="Movies folder" help={`${share}/${answers.moviesFolder}`}>
-                        <Input
-                            id="jf-movies"
-                            value={answers.moviesFolder}
-                            onChange={(event) => set('moviesFolder', event.target.value)}
-                            required
-                        />
-                    </Field>
-                    <Field id="jf-series" label="Series folder" help={`${share}/${answers.seriesFolder}`}>
-                        <Input
-                            id="jf-series"
-                            value={answers.seriesFolder}
-                            onChange={(event) => set('seriesFolder', event.target.value)}
-                            required
-                        />
-                    </Field>
-                </div>
-            </Section>
+            </MediaSourceFields>
 
             <Section title="Admin account" help="Homelab finishes the setup wizard of Jellyfin with this account.">
                 <div className="grid gap-4 sm:grid-cols-2">

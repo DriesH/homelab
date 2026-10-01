@@ -30,6 +30,7 @@ type Agent interface {
 	ForgetAppAnswers(ctx context.Context, app string) error
 	AppInstallStatus(ctx context.Context) (agent.AppInstallStatus, error)
 	Mounts(ctx context.Context) ([]agent.Mount, error)
+	MediaFolders(ctx context.Context) ([]agent.MediaFolder, error)
 }
 
 type Proxmox interface {
@@ -58,9 +59,6 @@ type App struct {
 	Subdomain string `json:"-"`
 	Links     []Link `json:"links"`
 }
-
-// MediaShareMount is where the installers mount the NAS share on the host.
-const MediaShareMount = "/mnt/homelab/media"
 
 var Catalog = []App{{
 	ID:          agent.JellyfinApp,
@@ -103,15 +101,17 @@ type Defaults struct {
 	Storages     []string `json:"storages"`
 	Storage      string   `json:"storage"`
 	JellyfinVMID int      `json:"jellyfinVmid,omitempty"`
-	// MediaShare is the NAS share that is mounted for the apps, like
-	// 192.168.1.5:/volume1/media. Empty when there is none yet.
-	MediaShare        string `json:"mediaShare,omitempty"`
-	MoviesFolder      string `json:"moviesFolder"`
-	SeriesFolder      string `json:"seriesFolder"`
-	VPNCountries      string `json:"vpnCountries"`
-	SubtitleLanguages string `json:"subtitleLanguages"`
-	Username          string `json:"username"`
-	DownloadsSize     int    `json:"downloadsSize"`
+	// MediaShare is the media that is mounted for the apps: a NAS share, like
+	// 192.168.1.5:/volume1/media, or a folder on the host. Empty when there is none yet.
+	MediaShare string `json:"mediaShare,omitempty"`
+	// MediaFolders are suggestions for a media folder on the host.
+	MediaFolders      []agent.MediaFolder `json:"mediaFolders"`
+	MoviesFolder      string              `json:"moviesFolder"`
+	SeriesFolder      string              `json:"seriesFolder"`
+	VPNCountries      string              `json:"vpnCountries"`
+	SubtitleLanguages string              `json:"subtitleLanguages"`
+	Username          string              `json:"username"`
+	DownloadsSize     int                 `json:"downloadsSize"`
 }
 
 type View struct {
@@ -246,6 +246,7 @@ func (s *Service) node(resources []proxmox.Resource) string {
 func (s *Service) defaults(ctx context.Context, node string, resources []proxmox.Resource) Defaults {
 	defaults := Defaults{
 		Storages:          []string{},
+		MediaFolders:      []agent.MediaFolder{},
 		MoviesFolder:      "movies",
 		SeriesFolder:      "series",
 		VPNCountries:      "Netherlands",
@@ -275,13 +276,15 @@ func (s *Service) defaults(ctx context.Context, node string, resources []proxmox
 		}
 	}
 
-	// MediaShareMount is where the installers mount the NAS share.
 	if mounts, err := s.Agent.Mounts(ctx); err == nil {
 		for _, mount := range mounts {
-			if mount.Path == MediaShareMount && mount.Mounted {
+			if mount.Path == agent.MediaMount && mount.Mounted {
 				defaults.MediaShare = mount.Source
 			}
 		}
+	}
+	if folders, err := s.Agent.MediaFolders(ctx); err == nil && folders != nil {
+		defaults.MediaFolders = folders
 	}
 
 	return defaults

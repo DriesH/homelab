@@ -20,6 +20,7 @@ import { appsQuery } from '@/lib/queries'
 import { Field, Section } from './form-parts'
 import { JellyfinForm } from './jellyfin-form'
 import { keepSaved } from './keep-saved'
+import { MediaSourceFields } from './media-source'
 
 type InstallDialogProps = {
     app: CatalogApp
@@ -40,7 +41,7 @@ export function InstallDialog({ app, defaults, saved, open, onOpenChange }: Inst
                     </DialogTitle>
                     <DialogDescription>
                         {app.id === 'jellyfin'
-                            ? 'Homelab makes a new container for Jellyfin on this host, with read access to the media folder on the NAS.'
+                            ? 'Homelab makes a new container for Jellyfin on this host, with read access to your movies and series.'
                             : 'Homelab makes a new container for it on this host. Nothing else changes, except that Jellyfin gets read access to the media folder.'}
                     </DialogDescription>
                 </DialogHeader>
@@ -77,6 +78,7 @@ function MediaStackForm({
             saved?.answers ?? {
                 nasServer: '',
                 nasExport: '',
+                mediaFolder: '',
                 moviesFolder: defaults.moviesFolder,
                 seriesFolder: defaults.seriesFolder,
                 wireguardPrivateKey: '',
@@ -96,7 +98,13 @@ function MediaStackForm({
     )
 
     const install = useMutation({
-        mutationFn: () => api.installApp(app.id, answers, saved !== null),
+        mutationFn: () =>
+            api.installApp(
+                app.id,
+                // Media that is already mounted is used as it is.
+                defaults.mediaShare ? { ...answers, nasServer: '', nasExport: '', mediaFolder: '' } : answers,
+                saved !== null,
+            ),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: appsQuery.queryKey })
             toast.success('The install started')
@@ -119,55 +127,34 @@ function MediaStackForm({
 
     return (
         <form className="flex flex-col gap-6" onSubmit={handleSubmit}>
-            <Section
-                title="NAS"
-                help="The NFS share with your movies and series. Each gets its own folder in it, and its own library in Jellyfin."
+            <MediaSourceFields
+                id="media"
+                defaults={defaults}
+                value={answers}
+                onChange={(value) => setAnswers((current) => ({ ...current, ...value }))}
+                help="Where your movies and series are. Each gets its own folder in it, and its own library in Jellyfin."
             >
-                <Field id="nas-server" label="Address">
-                    <Input
-                        id="nas-server"
-                        placeholder="192.168.1.5"
-                        value={answers.nasServer}
-                        onChange={(event) => set('nasServer', event.target.value.trim())}
-                        required
-                    />
-                </Field>
-                <Field id="nas-export" label="NFS export path" help="UGOS shows it on the NFS page.">
-                    <Input
-                        id="nas-export"
-                        placeholder="/volume1/media"
-                        value={answers.nasExport}
-                        onChange={(event) => set('nasExport', event.target.value.trim())}
-                        required
-                    />
-                </Field>
-                <div className="grid gap-4 sm:grid-cols-2">
-                    <Field
-                        id="movies-folder"
-                        label="Movies folder"
-                        help={folderHelp(answers.nasExport, answers.moviesFolder)}
-                    >
-                        <Input
-                            id="movies-folder"
-                            value={answers.moviesFolder}
-                            onChange={(event) => set('moviesFolder', event.target.value)}
-                            required
-                        />
-                    </Field>
-                    <Field
-                        id="series-folder"
-                        label="Series folder"
-                        help={folderHelp(answers.nasExport, answers.seriesFolder)}
-                    >
-                        <Input
-                            id="series-folder"
-                            value={answers.seriesFolder}
-                            onChange={(event) => set('seriesFolder', event.target.value)}
-                            required
-                        />
-                    </Field>
-                </div>
-            </Section>
+                {(path) => (
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        <Field id="movies-folder" label="Movies folder" help={`${path}/${answers.moviesFolder}`}>
+                            <Input
+                                id="movies-folder"
+                                value={answers.moviesFolder}
+                                onChange={(event) => set('moviesFolder', event.target.value)}
+                                required
+                            />
+                        </Field>
+                        <Field id="series-folder" label="Series folder" help={`${path}/${answers.seriesFolder}`}>
+                            <Input
+                                id="series-folder"
+                                value={answers.seriesFolder}
+                                onChange={(event) => set('seriesFolder', event.target.value)}
+                                required
+                            />
+                        </Field>
+                    </div>
+                )}
+            </MediaSourceFields>
 
             <Section
                 title="ProtonVPN"
@@ -403,9 +390,4 @@ function MediaStackForm({
             </DialogFooter>
         </form>
     )
-}
-
-// folderHelp shows the full path on the NAS, so it's clear where the files go.
-function folderHelp(nasExport: string, folder: string) {
-    return `${nasExport || '/volume1/media'}/${folder.trim() || '…'}`
 }

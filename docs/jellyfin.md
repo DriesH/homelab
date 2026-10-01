@@ -6,16 +6,16 @@ The Apps page installs Jellyfin in its own container. Install it before the medi
 
 ### Before you start
 
-1. On the NAS, turn on NFS and add an NFS rule for the media share for the IP of the Proxmox host. Read access is enough for Jellyfin. The media stack needs read/write, see [media-stack.md](media-stack.md).
+1. Choose where your movies and series are: on a NAS, or on a disk of the Proxmox host. See [media-folder.md](media-folder.md).
 2. Choose a username and password for the Jellyfin admin.
 
-If the media share is already mounted (by the media stack), the form uses that share and does not ask for the NAS.
+If the media stack already uses a media folder, the form uses that folder and does not ask for it.
 
 ### What the installer does
 
-1. Mounts the NAS share on the host at `/mnt/homelab/media`, unless it is already mounted.
+1. Mounts the media folder (the NAS share or the folder on the host) at `/mnt/homelab/media`, unless it is already mounted. On the host, it makes the movies and series folders when they do not exist.
 2. Makes a Debian 13 container named `jellyfin` (2 cores, 2 GB memory, 16 GB disk) with the tags `homelab` and `jellyfin`.
-3. Gives the container the media share at `/data/media`, read-only. Jellyfin keeps its own data on the disk of the container.
+3. Gives the container the media folder at `/data/media`, read-only. Jellyfin keeps its own data on the disk of the container.
 4. Installs Jellyfin from the official repository, `repo.jellyfin.org`. The Updates page updates it later, with the other containers.
 5. Passes the GPU of the host to the container, when the host has one (see below).
 6. Finishes the setup wizard with your admin account.

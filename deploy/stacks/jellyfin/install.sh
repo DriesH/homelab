@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Installs Jellyfin in a new LXC on this Proxmox host, with the official
-# Jellyfin repository, the media share of the NAS and the GPU of the host.
+# Jellyfin repository, the media (on a NAS or a disk of this host) and the GPU of the host.
 #
 #   ./install.sh [--storage local-lvm] [--bridge vmbr0] [--ctid 140] [--answers file]
 #
@@ -19,6 +19,7 @@ CT_ID=""
 ANSWERS=""
 NAS_SERVER=""
 NAS_EXPORT=""
+MEDIA_FOLDER=""
 THEME="y"
 GPU=""
 GPU_DEVICE="/dev/dri/renderD128"
@@ -50,7 +51,7 @@ load_answers() {
         [[ -z "$line" ]] && continue
         key="${line%%=*}" value="${line#*=}"
         case "$key" in
-            NAS_SERVER | NAS_EXPORT | MOVIES_FOLDER | SERIES_FOLDER | JELLYFIN_ADMIN_USERNAME | \
+            NAS_SERVER | NAS_EXPORT | MEDIA_FOLDER | MOVIES_FOLDER | SERIES_FOLDER | JELLYFIN_ADMIN_USERNAME | \
                 JELLYFIN_ADMIN_PASSWORD | THEME | STORAGE)
                 printf -v "$key" '%s' "$value"
                 ;;
@@ -66,14 +67,9 @@ ask_settings() {
         load_answers
     else
         log "A few questions first"
-        if systemctl is-active --quiet "$MEDIA_MOUNT_UNIT"; then
-            echo "Using the media share at $MEDIA_MOUNT ($(systemctl show -p What --value "$MEDIA_MOUNT_UNIT"))."
-        else
-            ask NAS_SERVER "NAS address (IP or hostname)"
-            ask NAS_EXPORT "NFS export path on the NAS (UGOS shows it, e.g. /volume1/media)"
-        fi
-        ask MOVIES_FOLDER "Folder for movies in the share" "movies"
-        ask SERIES_FOLDER "Folder for series in the share" "series"
+        ask_media_source
+        ask MOVIES_FOLDER "Folder for movies in it" "movies"
+        ask SERIES_FOLDER "Folder for series in it" "series"
         echo "The admin account of Jellyfin:"
         ask JELLYFIN_ADMIN_USERNAME "Username" "admin"
         ask JELLYFIN_ADMIN_PASSWORD "Password" "" secret
@@ -118,7 +114,7 @@ on_exit() {
         pct destroy "$CREATED_CT" --purge 1 || true
     fi
     if [[ -n "${CREATED_MOUNT:-}" ]]; then
-        log "Removing the mount of the NAS share"
+        log "Removing the media mount"
         systemctl disable --now "$MEDIA_MOUNT_UNIT" >/dev/null 2>&1 || true
         rm -f "/etc/systemd/system/$MEDIA_MOUNT_UNIT"
         systemctl daemon-reload || true

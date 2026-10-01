@@ -78,7 +78,7 @@ export function HealthPage() {
 
             {data.shares.length > 0 && (
                 <section className="flex flex-col gap-3">
-                    <h2 className="text-lg font-semibold">Network shares</h2>
+                    <h2 className="text-lg font-semibold">Shares</h2>
                     <ShareList shares={data.shares} />
                 </section>
             )}

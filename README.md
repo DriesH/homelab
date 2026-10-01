@@ -9,9 +9,9 @@ You need Proxmox VE 9 or newer on an amd64 host.
 On the Proxmox host, as root. Use the newest version from [Releases](https://github.com/DriesH/homelab/releases):
 
 ```sh
-curl -LO https://github.com/DriesH/homelab/releases/download/v0.5.0/homelab-v0.5.0-linux-amd64.tar.gz
-tar xzf homelab-v0.5.0-linux-amd64.tar.gz
-cd homelab-v0.5.0-linux-amd64
+curl -LO https://github.com/DriesH/homelab/releases/download/v0.7.0/homelab-v0.7.0-linux-amd64.tar.gz
+tar xzf homelab-v0.7.0-linux-amd64.tar.gz
+cd homelab-v0.7.0-linux-amd64
 ./install.sh
 ```
 
@@ -55,6 +55,7 @@ Open http://localhost:5173 and log in with `admin` / `homelab-dev-password`. See
 - [Tailscale](docs/tailscale.md)
 - [App names (seerr.homelab.local)](docs/app-names.md)
 - [Media stack](docs/media-stack.md)
+- [Media folder: on a NAS or on the host](docs/media-folder.md)
 - [Settings file (homelab.yaml)](docs/settings-file.md)
 - [Uninstall](docs/uninstall.md)
 - [Development](docs/development.md)

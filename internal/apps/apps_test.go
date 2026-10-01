@@ -22,6 +22,10 @@ type fakeAgent struct {
 	requests  []agent.InstallRequest
 }
 
+func (f *fakeAgent) MediaFolders(context.Context) ([]agent.MediaFolder, error) {
+	return []agent.MediaFolder{{Storage: "media", Path: "/mnt/pve/media"}}, nil
+}
+
 func (f *fakeAgent) Mounts(context.Context) ([]agent.Mount, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -294,7 +298,7 @@ func TestJellyfinInstallConnectsHomelab(t *testing.T) {
 	}
 	fake := &fakeAgent{
 		status: agent.AppInstallStatus{State: agent.UpgradeIdle},
-		mounts: []agent.Mount{{Path: MediaShareMount, Source: "192.168.1.5:/volume1/media", Mounted: true}},
+		mounts: []agent.Mount{{Path: agent.MediaMount, Source: "192.168.1.5:/volume1/media", Mounted: true}},
 	}
 	connected := make(chan agent.AppInstallStatus, 1)
 	service := New(Options{
@@ -311,6 +315,9 @@ func TestJellyfinInstallConnectsHomelab(t *testing.T) {
 	view, _ := service.Status(ctx)
 	if view.Defaults.MediaShare != "192.168.1.5:/volume1/media" {
 		t.Fatalf("media share = %q", view.Defaults.MediaShare)
+	}
+	if folders := view.Defaults.MediaFolders; len(folders) != 1 || folders[0].Path != "/mnt/pve/media" {
+		t.Fatalf("media folders = %+v", folders)
 	}
 
 	bad := validJellyfin()

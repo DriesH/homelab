@@ -307,6 +307,7 @@ export type AppInstall = {
 export type JellyfinAnswers = {
     nasServer: string
     nasExport: string
+    mediaFolder: string
     moviesFolder: string
     seriesFolder: string
     adminUsername: string
@@ -344,6 +345,7 @@ export type Apps = {
         storage: string
         jellyfinVmid?: number
         mediaShare?: string
+        mediaFolders: { storage: string; path: string }[]
         moviesFolder: string
         seriesFolder: string
         vpnCountries: string
@@ -357,6 +359,7 @@ export type Apps = {
 export type MediaStackAnswers = {
     nasServer: string
     nasExport: string
+    mediaFolder: string
     moviesFolder: string
     seriesFolder: string
     wireguardPrivateKey: string
