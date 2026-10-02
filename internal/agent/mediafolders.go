@@ -13,6 +13,13 @@ import (
 // share, or a folder on a disk of the host.
 const MediaMount = "/mnt/homelab/media"
 
+// With cloud storage, MediaMount joins the media in MediaLocalMount (the NAS
+// share or folder from before) with the cloud in MediaCloudMount.
+const (
+	MediaLocalMount = "/mnt/homelab/local"
+	MediaCloudMount = "/mnt/homelab/cloud"
+)
+
 // ProxmoxStorageConfig lists the storages of Proxmox, with their paths.
 const ProxmoxStorageConfig = "/etc/pve/storage.cfg"
 

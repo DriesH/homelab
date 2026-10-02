@@ -122,7 +122,7 @@ Options=bind
 	}
 
 	list := mounts.List()
-	want := Mount{Path: MediaMount, Source: "/mnt/pve/media", FSType: "folder", Mounted: true, Size: 1000, Used: 100}
+	want := Mount{Path: MediaMount, Source: "/mnt/pve/media", FSType: "folder", Mounted: true, Size: 1000, Used: 100, Role: RoleMedia}
 	if len(list) != 1 || list[0] != want {
 		t.Fatalf("got %+v, want only %+v", list, want)
 	}
