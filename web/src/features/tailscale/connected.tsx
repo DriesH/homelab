@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -75,6 +75,27 @@ export function ConnectedCard({ tailscale }: { tailscale: Tailscale }) {
                     <dt className="text-muted-foreground">Addresses</dt>
                     <dd className="font-mono break-all">{tailscale.ips.join(', ')}</dd>
                 </dl>
+                {tailscale.authUrl && (
+                    <Alert>
+                        <TriangleAlertIcon />
+                        <AlertTitle>Finish the login</AlertTitle>
+                        <AlertDescription className="flex flex-col items-start gap-3">
+                            <span>
+                                Tailscale waits for you to log in again, for example after "Use tag:homelab". Until
+                                then, Homelab keeps its old key.
+                            </span>
+                            <a
+                                href={tailscale.authUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className={buttonVariants({ size: 'sm' })}
+                            >
+                                Open the Tailscale login
+                                <ExternalLinkIcon />
+                            </a>
+                        </AlertDescription>
+                    </Alert>
+                )}
                 {tailscale.health.length > 0 && (
                     <Alert>
                         <TriangleAlertIcon />
