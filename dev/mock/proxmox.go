@@ -206,7 +206,7 @@ func (p *fakeProxmox) node(w http.ResponseWriter, r *http.Request) {
 		writeData(w, fakeUsage(parts, r.URL.Query().Get("timeframe")))
 	case path == "disks/list":
 		writeData(w, []map[string]any{
-			{"devpath": "/dev/nvme0n1", "model": "Samsung SSD 990 PRO 1TB", "serial": "S6Z1", "size": 1_000_204_886_016, "type": "nvme", "health": "PASSED", "wearout": 4, "used": "LVM"},
+			{"devpath": "/dev/nvme0n1", "model": "Samsung SSD 990 PRO 1TB", "serial": "S6Z1", "size": 1_000_204_886_016, "type": "nvme", "health": "PASSED", "wearout": 96, "used": "LVM"},
 			{"devpath": "/dev/sda", "model": "WDC WD40EFRX", "serial": "WD-1", "size": 4_000_787_030_016, "type": "hdd", "health": "PASSED", "wearout": "N/A", "used": "ZFS"},
 			{"devpath": "/dev/sdb", "model": "ST4000VN008", "serial": "ZD1", "size": 4_000_787_030_016, "type": "hdd", "health": "FAILED", "wearout": "N/A", "used": "ZFS"},
 		})

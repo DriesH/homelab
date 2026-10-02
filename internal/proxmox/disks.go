@@ -15,7 +15,8 @@ type Disk struct {
 	Type string `json:"type"`
 	// Health is the SMART result, like PASSED, OK or UNKNOWN.
 	Health string `json:"health"`
-	// Wearout is the percent of SSD life that is used. Proxmox sends "N/A" when it doesn't know.
+	// Wearout is the percent of SSD life that is left, like the SMART value it
+	// comes from. Proxmox sends "N/A" when it doesn't know.
 	Wearout json.RawMessage `json:"wearout"`
 	Used    string          `json:"used"`
 }
