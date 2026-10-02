@@ -9,9 +9,9 @@ You need Proxmox VE 9 or newer on an amd64 host.
 On the Proxmox host, as root. Use the newest version from [Releases](https://github.com/DriesH/homelab/releases):
 
 ```sh
-curl -LO https://github.com/DriesH/homelab/releases/download/v0.8.1/homelab-v0.8.1-linux-amd64.tar.gz
-tar xzf homelab-v0.8.1-linux-amd64.tar.gz
-cd homelab-v0.8.1-linux-amd64
+curl -LO https://github.com/DriesH/homelab/releases/download/v0.8.2/homelab-v0.8.2-linux-amd64.tar.gz
+tar xzf homelab-v0.8.2-linux-amd64.tar.gz
+cd homelab-v0.8.2-linux-amd64
 ./install.sh
 ```
 
