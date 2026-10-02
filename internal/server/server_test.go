@@ -129,13 +129,19 @@ func newTestServerWithOptions(t *testing.T, configure func(*Options)) (*httptest
 func currentCode(t *testing.T) string {
 	t.Helper()
 
+	return codeAt(t, time.Now())
+}
+
+func codeAt(t *testing.T, when time.Time) string {
+	t.Helper()
+
 	key, err := base32.StdEncoding.DecodeString(testSecret)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	message := make([]byte, 8)
-	binary.BigEndian.PutUint64(message, uint64(time.Now().Unix()/30))
+	binary.BigEndian.PutUint64(message, uint64(when.Unix()/30))
 	mac := hmac.New(sha1.New, key)
 	mac.Write(message)
 	sum := mac.Sum(nil)

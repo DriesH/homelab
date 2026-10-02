@@ -60,6 +60,7 @@ func serveAgent(socket string) error {
 	mux.HandleFunc("GET /v1/logs/journal", journal)
 	mux.HandleFunc("GET /v1/logs/docker", dockerLogs)
 	addAppRoutes(mux, installer)
+	addCloudRoutes(mux)
 	mux.HandleFunc("GET /v1/console/{vmid}", console)
 
 	return http.Serve(listener, mux)
