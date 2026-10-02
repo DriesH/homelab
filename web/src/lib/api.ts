@@ -303,6 +303,8 @@ export type LogEntry = { time: string; level: number; source: string; message: s
 export type TaskEntry = LogEntry & { node: string; upid: string }
 
 export type DockerLogs = {
+    // installed is false when the container has no Docker, like the manager.
+    installed: boolean
     containers: { name: string; state: string; image: string }[]
     entries: LogEntry[]
 }

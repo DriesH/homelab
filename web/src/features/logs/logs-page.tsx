@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { RefreshCwIcon, TriangleAlertIcon } from 'lucide-react'
+import { InfoIcon, RefreshCwIcon, TriangleAlertIcon } from 'lucide-react'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -53,16 +53,18 @@ export function LogsPage() {
     const refetchInterval = follow ? 5000 : false
     const logs = useQuery({
         queryKey: ['logs', kind, needsGuest ? selectedVmid : '', kind === 'host' || kind === 'container' ? level : ''],
-        queryFn: async (): Promise<LogEntry[]> => {
+        queryFn: async (): Promise<{ entries: LogEntry[]; noDocker?: boolean }> => {
             switch (kind) {
                 case 'host':
-                    return api.journal(0, Number(level))
+                    return { entries: await api.journal(0, Number(level)) }
                 case 'container':
-                    return api.journal(Number(selectedVmid), Number(level))
-                case 'docker':
-                    return (await api.dockerLogs(Number(selectedVmid))).entries
+                    return { entries: await api.journal(Number(selectedVmid), Number(level)) }
+                case 'docker': {
+                    const docker = await api.dockerLogs(Number(selectedVmid))
+                    return { entries: docker.entries, noDocker: !docker.installed }
+                }
                 case 'tasks':
-                    return api.tasks()
+                    return { entries: await api.tasks() }
             }
         },
         enabled: !needsGuest || selectedVmid !== '',
@@ -70,7 +72,7 @@ export function LogsPage() {
         retry: false,
     })
 
-    const entries = useMemo(() => logs.data ?? [], [logs.data])
+    const entries = useMemo(() => logs.data?.entries ?? [], [logs.data])
     const sources = useMemo(() => [...new Set(entries.map((entry) => entry.source))].sort(), [entries])
     const sourceItems = { [allSources]: 'All sources', ...Object.fromEntries(sources.map((name) => [name, name])) }
 
@@ -96,7 +98,9 @@ export function LogsPage() {
                 <div>
                     <h1 className="text-lg font-semibold">Logs</h1>
                     <p className="text-sm text-muted-foreground">
-                        {logs.data ? `${visible.length} of ${entries.length} lines, newest first` : 'Loading…'}
+                        {logs.data
+                            ? `${visible.length} of ${entries.length} lines, newest first`
+                            : !logs.error && 'Loading…'}
                     </p>
                 </div>
                 <div className="flex items-center gap-4">
@@ -198,6 +202,15 @@ export function LogsPage() {
                     <TriangleAlertIcon />
                     <AlertTitle>Could not load the logs</AlertTitle>
                     <AlertDescription>{logs.error.message}</AlertDescription>
+                </Alert>
+            ) : logs.data?.noDocker ? (
+                <Alert>
+                    <InfoIcon />
+                    <AlertTitle>{guestItems[selectedVmid] ?? `Container ${selectedVmid}`} has no Docker</AlertTitle>
+                    <AlertDescription>
+                        Docker logs are only there for containers that run Docker, like the media stack. Choose another
+                        container, or see the logs of this one on the Container tab.
+                    </AlertDescription>
                 </Alert>
             ) : (
                 <LogList
