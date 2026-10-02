@@ -97,6 +97,21 @@ func TestStatusWhenRunning(t *testing.T) {
 	}
 }
 
+func TestStatusWhileANewLoginWaits(t *testing.T) {
+	cli := &fakeCLI{outputs: map[string]string{
+		"status --json": `{"BackendState":"Running","AuthURL":"https://login.tailscale.com/a/tag",` +
+			`"Health":["You are logged out. The last login error was: fetch control key: context canceled","Some other warning"]}`,
+	}}
+	view := newTestService(t, cli).Status(context.Background())
+
+	if view.State != "Running" || view.AuthURL != "https://login.tailscale.com/a/tag" {
+		t.Fatalf("view = %+v", view)
+	}
+	if !slices.Equal(view.Health, []string{"Some other warning"}) {
+		t.Fatalf("health = %q", view.Health)
+	}
+}
+
 func TestStatusWhenNotInstalled(t *testing.T) {
 	cli := &fakeCLI{errs: map[string]error{"status --json": ErrNotInstalled}}
 	view := newTestService(t, cli).Status(context.Background())

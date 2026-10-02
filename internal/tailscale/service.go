@@ -242,8 +242,14 @@ func (s *Service) Status(ctx context.Context) View {
 
 	view.State = parsed.BackendState
 	view.AuthURL = parsed.AuthURL
-	if parsed.Health != nil {
-		view.Health = parsed.Health
+	for _, message := range parsed.Health {
+		// While a new login waits for approval, like after "Use tag:homelab", the old key
+		// still works and Tailscale reports the canceled first try as "You are logged out".
+		// The page shows the login link instead.
+		if parsed.BackendState == "Running" && parsed.AuthURL != "" && strings.HasPrefix(message, "You are logged out") {
+			continue
+		}
+		view.Health = append(view.Health, message)
 	}
 	if parsed.CurrentTailnet != nil {
 		view.Tailnet = parsed.CurrentTailnet.Name

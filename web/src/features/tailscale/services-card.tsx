@@ -97,7 +97,9 @@ function TagSetup({ tailscale }: { tailscale: Tailscale }) {
                         <span className="font-mono">svc:jellyfin</span>, each with the endpoint{' '}
                         <span className="font-mono">tcp:443</span>.
                     </li>
-                    <li>Click the button below, and log in again with the link that appears on this page.</li>
+                    <li>
+                        Click the button below, and log in again with the link that appears at the top of this page.
+                    </li>
                 </ol>
                 <p className="text-xs text-muted-foreground">
                     After that, the manager belongs to {hostTag} instead of to your account, and its key no longer
