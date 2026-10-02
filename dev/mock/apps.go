@@ -217,7 +217,8 @@ func (f *fakeInstalls) play(stack, answers, logPath, exitPath string) {
 }
 
 // mediaMount is the media of the apps: the NAS share, or what an install
-// mounted. With .dev/no-media-mount, nothing is mounted yet.
+// mounted. With .dev/no-media-mount, nothing is mounted yet. With cloud
+// storage on, it is the three mounts of the tiered media.
 func mediaMount() []agent.Mount {
 	if _, err := os.Stat(statePath("no-media-mount")); err == nil {
 		return nil
@@ -230,7 +231,17 @@ func mediaMount() []agent.Mount {
 		fsType = "folder"
 	}
 
-	return []agent.Mount{{Path: agent.MediaMount, Source: source, FSType: fsType, Mounted: true, Size: 7_900_000_000_000, Used: 5_300_000_000_000}}
+	media := agent.Mount{Path: agent.MediaMount, Source: source, FSType: fsType, Mounted: true, Size: 7_900_000_000_000, Used: 5_300_000_000_000, Role: agent.RoleMedia}
+	if !cloudEnabled() {
+		return []agent.Mount{media}
+	}
+
+	local := media
+	local.Path, local.Role = agent.MediaLocalMount, agent.RoleMediaLocal
+	media.FSType = "tiered"
+	cloud := agent.Mount{Path: agent.MediaCloudMount, Source: cloudLabel(), FSType: "cloud", Mounted: true, Role: agent.RoleMediaCloud}
+
+	return []agent.Mount{media, local, cloud}
 }
 
 // mountMedia keeps the media of a working install, like the installers do.
