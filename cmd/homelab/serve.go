@@ -22,6 +22,7 @@ import (
 	"homelab/internal/apps"
 	"homelab/internal/auth"
 	"homelab/internal/backups"
+	"homelab/internal/cloud"
 	"homelab/internal/config"
 	"homelab/internal/databackup"
 	"homelab/internal/health"
@@ -141,6 +142,16 @@ func serve() error {
 		return err
 	}
 
+	cloudService, err := cloud.New(cloud.Options{
+		DataDir: cfg.DataDir,
+		Agent:   agentClient,
+		Notify:  updateService.Notify,
+		Logger:  logger,
+	})
+	if err != nil {
+		return err
+	}
+
 	authService := auth.NewService(admin)
 	if err := authService.PersistTo(filepath.Join(cfg.DataDir, "sessions.json")); err != nil {
 		return err
@@ -195,6 +206,7 @@ func serve() error {
 		Logs:       agentClient,
 		Console:    agentClient,
 		Apps:       appsService,
+		Cloud:      cloudService,
 		SettingsFile: &settingsfile.Service{
 			Updates:    updateService,
 			Health:     healthService,

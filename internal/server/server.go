@@ -15,6 +15,7 @@ import (
 	"homelab/internal/apps"
 	"homelab/internal/auth"
 	"homelab/internal/backups"
+	"homelab/internal/cloud"
 	"homelab/internal/health"
 	"homelab/internal/jellyfin"
 	"homelab/internal/proxmox"
@@ -117,6 +118,18 @@ type Apps interface {
 	ChangeVPN(ctx context.Context, background context.Context, id string, settings agent.VPNSettings) error
 }
 
+type Cloud interface {
+	Status(ctx context.Context) cloud.View
+	SaveSettings(ctx context.Context, input cloud.Settings) error
+	Test(ctx context.Context, input cloud.Settings) error
+	CreateKey() (string, error)
+	ConfirmKey(typed string) error
+	RevealKey(ctx context.Context) (string, error)
+	SaveRule(rule cloud.Rule) error
+	Enable(ctx context.Context) error
+	Disable(ctx context.Context) error
+}
+
 type SettingsFile interface {
 	Export(ctx context.Context) ([]byte, error)
 	Import(ctx context.Context, data []byte, apply bool) (settingsfile.Result, error)
@@ -135,6 +148,7 @@ type Options struct {
 	Logs       Logs
 	Console    Console
 	Apps       Apps
+	Cloud      Cloud
 	// SettingsFile exports and imports homelab.yaml.
 	SettingsFile SettingsFile
 	// DataDir is the folder that a data backup copies.
@@ -211,6 +225,15 @@ func New(options Options) http.Handler {
 	mux.Handle("POST /api/apps/{id}/remove", s.requireSession(http.HandlerFunc(s.appsRemove)))
 	mux.Handle("GET /api/apps/{id}/vpn", s.requireSession(http.HandlerFunc(s.appsVPN)))
 	mux.Handle("PUT /api/apps/{id}/vpn", s.requireSession(http.HandlerFunc(s.appsChangeVPN)))
+	mux.Handle("GET /api/cloud", s.requireSession(http.HandlerFunc(s.cloudStatus)))
+	mux.Handle("PUT /api/cloud/settings", s.requireSession(http.HandlerFunc(s.cloudSaveSettings)))
+	mux.Handle("POST /api/cloud/test", s.requireSession(http.HandlerFunc(s.cloudTest)))
+	mux.Handle("POST /api/cloud/key", s.requireSession(http.HandlerFunc(s.cloudCreateKey)))
+	mux.Handle("POST /api/cloud/key/confirm", s.requireSession(http.HandlerFunc(s.cloudConfirmKey)))
+	mux.Handle("POST /api/cloud/key/reveal", s.requireSession(http.HandlerFunc(s.cloudRevealKey)))
+	mux.Handle("PUT /api/cloud/rule", s.requireSession(http.HandlerFunc(s.cloudSaveRule)))
+	mux.Handle("POST /api/cloud/enable", s.requireSession(http.HandlerFunc(s.cloudEnable)))
+	mux.Handle("POST /api/cloud/disable", s.requireSession(http.HandlerFunc(s.cloudDisable)))
 	mux.Handle("GET /api/settings/export", s.requireSession(http.HandlerFunc(s.settingsExport)))
 	mux.Handle("POST /api/settings/import", s.requireSession(http.HandlerFunc(s.settingsImport)))
 	mux.Handle("POST /api/data-backup/download", s.requireSession(http.HandlerFunc(s.dataBackupDownload)))
