@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExternalLinkIcon, Loader2Icon, RotateCwIcon, TriangleAlertIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { JobProgress } from '@/components/job-progress'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -212,57 +213,28 @@ function OperationProgress({
     operation: NonNullable<CatalogApp['operation']>
     rollback?: string
 }) {
-    const log = useRef<HTMLPreElement>(null)
     // An agent from before updates and removals sends no action.
     const text = operationText[operation.action ?? 'install']
 
-    // Follow the log while it grows.
-    useEffect(() => {
-        log.current?.scrollTo({ top: log.current.scrollHeight })
-    }, [operation.log])
-
-    const logView = operation.log && (
-        <pre
-            ref={log}
-            className="max-h-72 overflow-auto rounded-md bg-muted p-3 font-mono text-xs whitespace-pre-wrap text-foreground"
-        >
-            {operation.log}
-        </pre>
-    )
-
     if (operation.state === 'running') {
-        return (
-            <div className="flex flex-col gap-3">
-                <Alert>
-                    <Loader2Icon className="animate-spin" />
-                    <AlertTitle>{text.running}</AlertTitle>
-                    <AlertDescription>{text.runningDetail}</AlertDescription>
-                </Alert>
-                {logView}
-            </div>
-        )
+        return <JobProgress state="running" title={text.running} detail={text.runningDetail} log={operation.log} />
     }
 
     if (operation.state === 'failed') {
         return (
-            <Alert variant="destructive">
-                <TriangleAlertIcon />
-                <AlertTitle>{text.failed}</AlertTitle>
-                <AlertDescription className="flex flex-col gap-2">
-                    <span>
+            <JobProgress
+                state="failed"
+                title={text.failed}
+                log={operation.log}
+                detail={
+                    <>
                         {operation.message}.
                         {operation.action === 'install' && ' If the install made a container, it removed it again.'}
                         {operation.action === 'vpn' && ' The old settings are back.'}
                         {rollback && ` ${rollback}`}
-                    </span>
-                    {logView && (
-                        <details open>
-                            <summary className="cursor-pointer">Log</summary>
-                            <div className="mt-2">{logView}</div>
-                        </details>
-                    )}
-                </AlertDescription>
-            </Alert>
+                    </>
+                }
+            />
         )
     }
 
