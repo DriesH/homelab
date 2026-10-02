@@ -63,6 +63,8 @@ type ShareView struct {
 	Used    int64  `json:"used"`
 	Error   string `json:"error,omitempty"`
 	Problem string `json:"problem,omitempty"`
+	// Role is set for the mounts behind the media folder, see agent.Mount.
+	Role string `json:"role,omitempty"`
 }
 
 type system struct {
@@ -187,7 +189,7 @@ func storageView(resource proxmox.Resource) StorageView {
 func shareView(mount agent.Mount) ShareView {
 	view := ShareView{
 		Path: mount.Path, Source: mount.Source, FSType: mount.FSType,
-		Mounted: mount.Mounted, Size: mount.Size, Used: mount.Used, Error: mount.Error,
+		Mounted: mount.Mounted, Size: mount.Size, Used: mount.Used, Error: mount.Error, Role: mount.Role,
 	}
 
 	access, space := shareProblems(view)
@@ -199,13 +201,22 @@ func shareView(mount agent.Mount) ShareView {
 // shareProblems returns two problems, so that a share that comes back full
 // still sends a new alert.
 func shareProblems(share ShareView) (access, space string) {
+	name := "Share"
+	if share.Role == agent.RoleMediaCloud {
+		name = "Cloud storage"
+	}
 	switch {
 	case !share.Mounted:
-		access = fmt.Sprintf("Share %s is not mounted at %s", share.Source, share.Path)
+		access = fmt.Sprintf("%s %s is not mounted at %s", name, share.Source, share.Path)
 	case share.Error != "":
-		access = fmt.Sprintf("Share %s at %s: %s", share.Source, share.Path, share.Error)
+		access = fmt.Sprintf("%s %s at %s: %s", name, share.Source, share.Path, share.Error)
 	}
 
+	// With cloud storage, the media folder shows the space of its local part,
+	// so only the media folder warns about it.
+	if share.Role == agent.RoleMediaLocal {
+		return access, ""
+	}
 	if share.Size > 0 && float64(share.Used)/float64(share.Size) >= storageLimit {
 		space = fmt.Sprintf("Share %s is %d%% full", share.Source, share.Used*100/share.Size)
 	}
