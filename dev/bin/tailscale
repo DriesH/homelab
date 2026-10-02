@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Fake tailscale CLI for `make dev`. It keeps its state in .dev/tailscale.
-# A login "succeeds" 5 seconds after `tailscale up`.
+# A login "succeeds" 5 seconds after `tailscale up`, and a new login with
+# --force-reauth after 30 seconds.
 dir="$(cd "$(dirname "$0")/../.." && pwd)/.dev/tailscale"
 mkdir -p "$dir"
 state="$(cat "$dir/state" 2>/dev/null || echo NeedsLogin)"
@@ -12,8 +13,14 @@ case "$1 $2" in
         [[ -f "$dir/routes" ]] && routes="[\"$(cat "$dir/routes")\"]"
         tags="[]"
         [[ -f "$dir/tagged" ]] && tags='["tag:homelab"]'
+        # A new login keeps the old key working, like the real tailscaled.
+        url="" health="[]"
+        if [[ -f "$dir/pending" ]]; then
+            url="https://login.tailscale.com/a/dev"
+            health='["You are logged out. The last login error was: fetch control key: Get \"https://controlplane.tailscale.com/key?v=142\": context canceled"]'
+        fi
         cat <<JSON
-{"BackendState":"Running","AuthURL":"","Health":[],
+{"BackendState":"Running","AuthURL":"$url","Health":$health,
  "Self":{"HostName":"homelab","DNSName":"homelab.tail1234.ts.net.","TailscaleIPs":["100.101.102.103"],"PrimaryRoutes":$routes,"Tags":$tags},
  "CurrentTailnet":{"Name":"you@example.com"},
  "Peer":{"1":{"HostName":"iphone","DNSName":"iphone.tail1234.ts.net.","OS":"iOS","TailscaleIPs":["100.90.1.2"],"Online":true},
@@ -35,6 +42,15 @@ JSON
         [[ "$arg" == --force-reauth ]] && reauth=1
     done
     if [[ "$state" == Running && -z "$reauth" ]]; then
+        exit 0
+    fi
+    if [[ "$state" == Running ]]; then
+        touch "$dir/pending"
+        printf '\nTo authenticate, visit:\n\n\thttps://login.tailscale.com/a/dev\n'
+        sleep 30
+        if [[ -n "$tag" ]]; then touch "$dir/tagged"; else rm -f "$dir/tagged"; fi
+        rm -f "$dir/pending"
+        echo Success.
         exit 0
     fi
     # A login with a tag needs a new login, like the real CLI.
