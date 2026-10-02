@@ -160,11 +160,33 @@ func TestCheckInputValidation(t *testing.T) {
 	}
 }
 
+// Proxmox sends the life that is left: 100 - "Percentage Used" for NVMe.
+func TestWearoutIsTheLifeThatIsUsed(t *testing.T) {
+	cases := []struct {
+		left    string
+		worn    int
+		problem bool
+	}{
+		{`98`, 2, false},
+		{`100`, 0, false},
+		{`11`, 89, false},
+		{`10`, 90, true},
+		// "Percentage Used" goes above 100 after the rated endurance.
+		{`-20`, 100, true},
+	}
+	for _, c := range cases {
+		view := diskView("pve", proxmox.Disk{DevPath: "/dev/nvme0n1", Health: "PASSED", Wearout: json.RawMessage(c.left)})
+		if view.Wearout == nil || *view.Wearout != c.worn || (view.Problem != "") != c.problem {
+			t.Errorf("left %s: worn %v, problem %q", c.left, view.Wearout, view.Problem)
+		}
+	}
+}
+
 func TestSystemAlerts(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	h.pve.disks = []proxmox.Disk{
-		{DevPath: "/dev/sda", Model: "Samsung SSD", Health: "PASSED", Wearout: json.RawMessage(`3`)},
+		{DevPath: "/dev/sda", Model: "Samsung SSD", Health: "PASSED", Wearout: json.RawMessage(`97`)},
 		{DevPath: "/dev/sdb", Model: "USB stick", Health: "UNKNOWN", Wearout: json.RawMessage(`"N/A"`)},
 	}
 	h.pve.pools = []proxmox.ZFSPool{{Name: "rpool", Health: "ONLINE"}}

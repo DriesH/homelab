@@ -158,15 +158,16 @@ func diskView(node string, disk proxmox.Disk) DiskView {
 	return view
 }
 
-// parseWearout reads a number, or returns nil for "N/A" and other text.
+// parseWearout turns the life that is left, as Proxmox sends it, into the
+// percent that is worn out. It returns nil for "N/A" and other text.
 func parseWearout(raw json.RawMessage) *int {
-	var number float64
-	if json.Unmarshal(raw, &number) != nil {
+	var left float64
+	if json.Unmarshal(raw, &left) != nil {
 		return nil
 	}
 
-	wearout := int(number)
-	return &wearout
+	worn := min(max(100-int(left), 0), 100)
+	return &worn
 }
 
 func storageView(resource proxmox.Resource) StorageView {
