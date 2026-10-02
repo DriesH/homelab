@@ -112,10 +112,10 @@ function GuestRow({ guest, backups, onBackUp, onConfirm }: GuestRowProps) {
 
     return (
         <li className="flex flex-col gap-3 px-4 py-3">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
                 <button
                     type="button"
-                    className="flex min-w-0 basis-full items-center gap-2 text-left disabled:cursor-default sm:flex-1 sm:basis-auto"
+                    className="flex min-w-0 items-center gap-2 text-left disabled:cursor-default sm:flex-1"
                     onClick={() => setOpen(!open)}
                     disabled={guest.backups.length === 0}
                     aria-expanded={open}
@@ -138,16 +138,17 @@ function GuestRow({ guest, backups, onBackUp, onConfirm }: GuestRowProps) {
                     </span>
                 </button>
 
-                <span className="flex-1 sm:hidden" />
-                <IncludedSwitch
-                    guest={guest}
-                    jobActive={backups.job.exists && backups.job.enabled}
-                    disabled={save.isPending}
-                    onChange={setIncluded}
-                />
-                <Button variant="outline" size="sm" disabled={busy} onClick={onBackUp}>
-                    Back up now
-                </Button>
+                <div className="flex items-center justify-between gap-4 pl-6 sm:pl-0">
+                    <IncludedSwitch
+                        guest={guest}
+                        jobActive={backups.job.exists && backups.job.enabled}
+                        disabled={save.isPending}
+                        onChange={setIncluded}
+                    />
+                    <Button variant="outline" size="sm" disabled={busy} onClick={onBackUp}>
+                        Back up now
+                    </Button>
+                </div>
             </div>
 
             {open && (
@@ -216,7 +217,7 @@ type IncludedSwitchProps = {
 function IncludedSwitch({ guest, jobActive, disabled, onChange }: IncludedSwitchProps) {
     const control = (
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span className="hidden sm:inline">Scheduled</span>
+            Scheduled
             <Switch
                 checked={guest.included}
                 disabled={disabled || !jobActive}
