@@ -81,3 +81,10 @@ export const appsQuery = queryOptions({
     refetchInterval: (query) =>
         query.state.data?.apps.some((app) => app.operation?.state === 'running') ? 2000 : 30000,
 })
+
+export const cloudQuery = queryOptions({
+    queryKey: ['cloud'],
+    queryFn: api.cloud,
+    // Poll fast while the cloud storage turns on or off, for the live log.
+    refetchInterval: (query) => (query.state.data?.host?.job?.state === 'running' ? 2000 : 30000),
+})

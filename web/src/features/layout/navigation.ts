@@ -5,6 +5,7 @@ import {
     HeartPulseIcon,
     LayoutDashboardIcon,
     BlocksIcon,
+    CloudIcon,
     NetworkIcon,
     ScrollTextIcon,
     type LucideIcon,
@@ -20,6 +21,8 @@ export const navigation: { label: string; items: NavItem[] }[] = [
             { to: '/health', label: 'Health', icon: HeartPulseIcon },
             { to: '/updates', label: 'Updates', icon: ArrowUpCircleIcon },
             { to: '/backups', label: 'Backups', icon: ArchiveIcon },
+            // Only in dev mode until the host agent can do the work.
+            ...(import.meta.env.DEV ? [{ to: '/cloud', label: 'Cloud storage', icon: CloudIcon }] : []),
             { to: '/logs', label: 'Logs', icon: ScrollTextIcon },
         ],
     },
