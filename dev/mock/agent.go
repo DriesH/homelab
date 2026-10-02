@@ -154,9 +154,16 @@ func journal(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, shown)
 }
 
+// dockerLogs has no Docker in the manager and Jellyfin, like on a real host.
 func dockerLogs(w http.ResponseWriter, r *http.Request) {
+	if vmid := r.URL.Query().Get("vmid"); vmid == "100" || vmid == "101" {
+		writeJSON(w, agent.DockerLogs{Containers: []agent.DockerContainer{}, Entries: []agent.LogEntry{}})
+		return
+	}
+
 	now := time.Now()
 	writeJSON(w, agent.DockerLogs{
+		Installed: true,
 		Containers: []agent.DockerContainer{
 			{Name: "radarr", State: "running", Image: "lscr.io/linuxserver/radarr"},
 			{Name: "gluetun", State: "running", Image: "qmcgaw/gluetun"},
