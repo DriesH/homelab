@@ -70,9 +70,16 @@ type DockerContainer struct {
 }
 
 type DockerLogs struct {
+	// Installed is false when the container has no Docker, like the manager.
+	Installed  bool              `json:"installed"`
 	Containers []DockerContainer `json:"containers"`
 	Entries    []LogEntry        `json:"entries"`
 }
+
+// guestError is a container that is missing or not running.
+type guestError string
+
+func (e guestError) Error() string { return string(e) }
 
 // Logs reads journals and Docker logs with fixed, read-only commands.
 type Logs struct {
@@ -94,10 +101,10 @@ func (l *Logs) inGuest(ctx context.Context, vmid int, args ...string) ([]byte, e
 
 	status, err := l.run(ctx, "pct", "status", strconv.Itoa(vmid))
 	if err != nil {
-		return nil, fmt.Errorf("container %d not found", vmid)
+		return nil, guestError(fmt.Sprintf("container %d not found", vmid))
 	}
 	if strings.TrimSpace(string(status)) != "status: running" {
-		return nil, fmt.Errorf("container %d is not running", vmid)
+		return nil, guestError(fmt.Sprintf("container %d is not running", vmid))
 	}
 
 	return l.run(ctx, "pct", append([]string{"exec", strconv.Itoa(vmid), "--"}, args...)...)
@@ -193,12 +200,20 @@ func (l *Logs) Docker(ctx context.Context, vmid, lines int) (DockerLogs, error) 
 	ctx, cancel := context.WithTimeout(ctx, logsTimeout)
 	defer cancel()
 
+	result := DockerLogs{Containers: []DockerContainer{}, Entries: []LogEntry{}}
+	if _, err := l.inGuest(ctx, vmid, "sh", "-c", "command -v docker"); err != nil {
+		if _, ok := errors.AsType[guestError](err); ok {
+			return DockerLogs{}, err
+		}
+		return result, nil
+	}
+	result.Installed = true
+
 	output, err := l.inGuest(ctx, vmid, "docker", "ps", "--all", "--format", "{{.Names}}\t{{.State}}\t{{.Image}}")
 	if err != nil {
-		return DockerLogs{}, fmt.Errorf("could not list Docker containers, is Docker installed? %w", err)
+		return DockerLogs{}, fmt.Errorf("could not list Docker containers: %w", err)
 	}
 
-	result := DockerLogs{Containers: []DockerContainer{}, Entries: []LogEntry{}}
 	for line := range strings.Lines(string(output)) {
 		fields := strings.Split(strings.TrimSpace(line), "\t")
 		if len(fields) != 3 || !dockerName.MatchString(fields[0]) {

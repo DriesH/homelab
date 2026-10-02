@@ -83,8 +83,9 @@ func TestJournalCommands(t *testing.T) {
 
 func TestDockerLogs(t *testing.T) {
 	commands := &fakeCommands{outputs: map[string]string{
-		"pct status 102":            "status: running\n",
-		"pct exec 102 -- docker ps": "radarr\trunning\tlscr.io/linuxserver/radarr\nbad name;rm\trunning\tx\nqbittorrent\trunning\tlscr.io/linuxserver/qbittorrent\n",
+		"pct status 102": "status: running\n",
+		"pct exec 102 -- sh -c command -v docker": "/usr/bin/docker\n",
+		"pct exec 102 -- docker ps":               "radarr\trunning\tlscr.io/linuxserver/radarr\nbad name;rm\trunning\tx\nqbittorrent\trunning\tlscr.io/linuxserver/qbittorrent\n",
 		"pct exec 102 -- sh -c docker logs --timestamps --tail \"$1\" \"$2\" 2>&1 sh 50 radarr":      "2026-09-30T10:00:01.5Z [Info] RssSyncService: Starting RSS Sync\n2026-09-30T10:00:03Z [Warn] Indexer is slow\n",
 		"pct exec 102 -- sh -c docker logs --timestamps --tail \"$1\" \"$2\" 2>&1 sh 50 qbittorrent": "2026-09-30T10:00:02Z (C) Connection refused\n",
 	}}
@@ -95,7 +96,7 @@ func TestDockerLogs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(result.Containers) != 2 {
+	if !result.Installed || len(result.Containers) != 2 {
 		t.Fatalf("containers = %+v", result.Containers)
 	}
 	if len(result.Entries) != 3 {
@@ -108,5 +109,23 @@ func TestDockerLogs(t *testing.T) {
 	}
 	if sources[0] != "radarr" || sources[1] != "qbittorrent" || sources[2] != "radarr" {
 		t.Errorf("sources = %v (should be sorted by time)", sources)
+	}
+}
+
+func TestDockerLogsWithoutDocker(t *testing.T) {
+	commands := &fakeCommands{outputs: map[string]string{"pct status 101": "status: running\n"}}
+	logs := &Logs{run: commands.run}
+
+	result, err := logs.Docker(context.Background(), 101, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Installed || len(result.Containers) != 0 || result.Entries == nil {
+		t.Fatalf("result = %+v", result)
+	}
+
+	commands.outputs["pct status 101"] = "status: stopped\n"
+	if _, err := logs.Docker(context.Background(), 101, 50); err == nil || err.Error() != "container 101 is not running" {
+		t.Fatalf("stopped: %v", err)
 	}
 }
