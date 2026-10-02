@@ -370,8 +370,8 @@ func TestJellyfinInstallConnectsHomelab(t *testing.T) {
 	ctx := context.Background()
 
 	view, _ := service.Status(ctx)
-	if view.Defaults.MediaShare != "192.168.1.5:/volume1/media" {
-		t.Fatalf("media share = %q", view.Defaults.MediaShare)
+	if view.Defaults.MediaShare != "192.168.1.5:/volume1/media" || view.Defaults.MediaCloud != "" {
+		t.Fatalf("media share = %q, cloud = %q", view.Defaults.MediaShare, view.Defaults.MediaCloud)
 	}
 	if folders := view.Defaults.MediaFolders; len(folders) != 1 || folders[0].Path != "/mnt/pve/media" {
 		t.Fatalf("media folders = %+v", folders)

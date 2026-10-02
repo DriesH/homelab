@@ -367,6 +367,7 @@ export type Apps = {
         storage: string
         jellyfinVmid?: number
         mediaShare?: string
+        mediaCloud?: string
         mediaFolders: { storage: string; path: string }[]
         moviesFolder: string
         seriesFolder: string
