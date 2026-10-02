@@ -30,6 +30,11 @@ export function MediaSourceFields({ id, defaults, value, onChange, help, childre
             <Section title="Media" help={help}>
                 <p className="text-sm">
                     Uses the media that is already mounted: <span className="font-mono">{defaults.mediaShare}</span>
+                    {defaults.mediaCloud && (
+                        <>
+                            , with the older media in <span className="font-mono">{defaults.mediaCloud}</span>
+                        </>
+                    )}
                 </p>
                 {children(defaults.mediaShare)}
             </Section>

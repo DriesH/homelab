@@ -23,7 +23,18 @@ type Mount struct {
 	Used    int64  `json:"used"`
 	// Error is set when the share is mounted but doesn't answer.
 	Error string `json:"error,omitempty"`
+	// Role is set for the mounts behind the media folder.
+	Role string `json:"role,omitempty"`
 }
+
+const (
+	RoleMedia      = "media"
+	RoleMediaLocal = "media-local"
+	RoleMediaCloud = "media-cloud"
+)
+
+// cloudUnit mounts the cloud storage at MediaCloudMount.
+const cloudUnit = "homelab-cloud.service"
 
 var networkFSTypes = []string{"nfs", "nfs4", "cifs", "smb3"}
 
@@ -36,7 +47,9 @@ type Mounts struct {
 	UnitDir   string
 	Fstab     string
 	MountInfo string
-	Timeout   time.Duration
+	// CloudLabel names the cloud storage, like "Cloudflare R2: media".
+	CloudLabel string
+	Timeout    time.Duration
 	// statfs is replaced in tests.
 	statfs func(path string) (size, used int64, err error)
 
@@ -48,12 +61,13 @@ type Mounts struct {
 
 func NewMounts() *Mounts {
 	return &Mounts{
-		UnitDir:   "/etc/systemd/system",
-		Fstab:     "/etc/fstab",
-		MountInfo: "/proc/self/mountinfo",
-		Timeout:   5 * time.Second,
-		statfs:    statfs,
-		pending:   map[string]bool{},
+		UnitDir:    "/etc/systemd/system",
+		Fstab:      "/etc/fstab",
+		MountInfo:  "/proc/self/mountinfo",
+		CloudLabel: "/etc/homelab-cloud/label",
+		Timeout:    5 * time.Second,
+		statfs:     statfs,
+		pending:    map[string]bool{},
 	}
 }
 
@@ -78,6 +92,10 @@ func (m *Mounts) List() []Mount {
 	for _, mount := range byPath {
 		if mount.Mounted {
 			m.usage(mount)
+		}
+		if mount.Role == RoleMediaCloud {
+			// rclone makes up a size. The statfs only shows that the mount answers.
+			mount.Size, mount.Used = 0, 0
 		}
 		mounts = append(mounts, *mount)
 	}
@@ -135,7 +153,7 @@ func statfs(path string) (size, used int64, err error) {
 	return size, used, nil
 }
 
-// unitMounts reads network mounts and the media mount from systemd .mount unit files.
+// unitMounts reads network mounts and the media mounts from systemd unit files.
 func (m *Mounts) unitMounts() []Mount {
 	files, _ := filepath.Glob(filepath.Join(m.UnitDir, "*.mount"))
 
@@ -162,17 +180,47 @@ func (m *Mounts) unitMounts() []Mount {
 			}
 		}
 
+		mount.Role = mediaRole(mount.Path)
 		switch {
-		case mount.Path != "" && slices.Contains(networkFSTypes, mount.FSType):
-			mounts = append(mounts, mount)
-		case mount.Path == MediaMount:
-			// A bind mount of a folder on a disk of this host.
-			mount.FSType = "folder"
-			mounts = append(mounts, mount)
+		case mount.Path == MediaMount && mount.FSType == "fuse.mergerfs":
+			mount.FSType = "tiered"
+		case mount.Role != "":
+			if !slices.Contains(networkFSTypes, mount.FSType) {
+				// A bind mount of a folder on a disk of this host.
+				mount.FSType = "folder"
+			}
+		case mount.Path == "" || !slices.Contains(networkFSTypes, mount.FSType):
+			continue
 		}
+		mounts = append(mounts, mount)
+	}
+
+	if _, err := os.Stat(filepath.Join(m.UnitDir, cloudUnit)); err == nil {
+		label, _ := os.ReadFile(m.CloudLabel)
+		mounts = append(mounts, Mount{Path: MediaCloudMount, Source: strings.TrimSpace(string(label)), FSType: "cloud", Role: RoleMediaCloud})
+	}
+
+	// The tiered media shows where its local part comes from.
+	media := slices.IndexFunc(mounts, func(mount Mount) bool { return mount.Path == MediaMount && mount.FSType == "tiered" })
+	local := slices.IndexFunc(mounts, func(mount Mount) bool { return mount.Path == MediaLocalMount })
+	if media >= 0 && local >= 0 {
+		mounts[media].Source = mounts[local].Source
 	}
 
 	return mounts
+}
+
+func mediaRole(path string) string {
+	switch path {
+	case MediaMount:
+		return RoleMedia
+	case MediaLocalMount:
+		return RoleMediaLocal
+	case MediaCloudMount:
+		return RoleMediaCloud
+	}
+
+	return ""
 }
 
 // fstabMounts reads network mounts from fstab, except those marked noauto.
@@ -200,7 +248,7 @@ func (m *Mounts) fstabMounts() []Mount {
 	return mounts
 }
 
-// mounted reads the network shares and the media mount that are mounted right now.
+// mounted reads the network shares and the media mounts that are mounted right now.
 func (m *Mounts) mounted() []Mount {
 	file, err := os.Open(m.MountInfo)
 	if err != nil {
@@ -218,11 +266,12 @@ func (m *Mounts) mounted() []Mount {
 			continue
 		}
 		path := unescape(fields[4])
-		if !slices.Contains(networkFSTypes, tail[0]) && path != MediaMount {
+		role := mediaRole(path)
+		if !slices.Contains(networkFSTypes, tail[0]) && role == "" {
 			continue
 		}
 
-		mounts = append(mounts, Mount{Path: path, Source: unescape(tail[1]), FSType: tail[0], Mounted: true})
+		mounts = append(mounts, Mount{Path: path, Source: unescape(tail[1]), FSType: tail[0], Mounted: true, Role: role})
 	}
 
 	return mounts

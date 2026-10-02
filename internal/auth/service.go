@@ -179,6 +179,35 @@ func (s *Service) CheckPassword(password, clientIP string) error {
 	return nil
 }
 
+// CheckPasswordAndCode asks for the password and an authenticator code again,
+// before the most sensitive actions. Failures count toward the login lockout,
+// and a code works only once, like at login.
+func (s *Service) CheckPasswordAndCode(password, code, clientIP string) error {
+	if s.isLockedOut(clientIP) {
+		return ErrLockedOut
+	}
+
+	passwordOK, err := VerifyPassword(password, s.admin.PasswordHash)
+	if err != nil {
+		return err
+	}
+	step, codeOK := matchTOTP(s.admin.TOTPSecret, code, s.now())
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if codeOK && step <= s.lastTOTPStep {
+		codeOK = false
+	}
+	if !passwordOK || !codeOK {
+		s.recordFailure(clientIP)
+		return ErrInvalidCredentials
+	}
+
+	s.lastTOTPStep = step
+	return s.saveLocked()
+}
+
 func (s *Service) Validate(token string) bool {
 	key := sha256.Sum256([]byte(token))
 

@@ -125,6 +125,10 @@ remove_app() {
 # It never touches the files on the NAS or the disk.
 remove_unused_media_mount() {
     [[ -f "/etc/systemd/system/$MEDIA_MOUNT_UNIT" ]] || return 0
+    if media_tiered; then
+        log "Keeping the media mount, because cloud storage uses it. Turn cloud storage off first to remove it"
+        return 0
+    fi
     if grep -qs "^mp[0-9]*: $MEDIA_MOUNT," /etc/pve/nodes/*/lxc/*.conf; then
         return 0
     fi
@@ -134,6 +138,7 @@ remove_unused_media_mount() {
 }
 
 remove_media_mount() {
+    media_tiered && return 0
     systemctl disable --now "$MEDIA_MOUNT_UNIT" >/dev/null 2>&1 || true
     rm -f "/etc/systemd/system/$MEDIA_MOUNT_UNIT"
     systemctl daemon-reload || true
@@ -143,6 +148,9 @@ remove_media_mount() {
 # media stack and Jellyfin both see it as /data/media.
 MEDIA_MOUNT="/mnt/homelab/media"
 MEDIA_MOUNT_UNIT="mnt-homelab-media.mount"
+# With cloud storage, MEDIA_MOUNT joins the media from before, now mounted by
+# this unit at /mnt/homelab/local, with the cloud at /mnt/homelab/cloud.
+MEDIA_LOCAL_UNIT="mnt-homelab-local.mount"
 # Unprivileged LXCs shift ids by 100000, and the apps of the media stack run as uid 1000.
 HOST_CONTAINER_UID=101000
 SYSTEM_FOLDERS=" bin boot dev etc lib lib32 lib64 libx32 proc root run sbin sys tmp usr var "
@@ -172,8 +180,19 @@ ask_media_source() {
 }
 
 # media_source is the NAS share or the folder that is mounted at MEDIA_MOUNT.
+# With cloud storage, it is the local part.
 media_source() {
+    if media_tiered; then
+        systemctl show -p What --value "$MEDIA_LOCAL_UNIT"
+        return
+    fi
     systemctl show -p What --value "$MEDIA_MOUNT_UNIT"
+}
+
+# media_tiered is true when cloud storage is on: MEDIA_MOUNT is then a mergerfs
+# mount of the local media and the cloud.
+media_tiered() {
+    [[ "$(systemctl show -p Type --value "$MEDIA_MOUNT_UNIT" 2>/dev/null)" == fuse.mergerfs ]]
 }
 
 media_is_local() {

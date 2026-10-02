@@ -133,6 +133,8 @@ type Defaults struct {
 	// MediaShare is the media that is mounted for the apps: a NAS share, like
 	// 192.168.1.5:/volume1/media, or a folder on the host. Empty when there is none yet.
 	MediaShare string `json:"mediaShare,omitempty"`
+	// MediaCloud names the cloud storage that holds the older media, if there is one.
+	MediaCloud string `json:"mediaCloud,omitempty"`
 	// MediaFolders are suggestions for a media folder on the host.
 	MediaFolders      []agent.MediaFolder `json:"mediaFolders"`
 	MoviesFolder      string              `json:"moviesFolder"`
@@ -336,8 +338,11 @@ func (s *Service) defaults(ctx context.Context, node string, resources []proxmox
 
 	if mounts, err := s.Agent.Mounts(ctx); err == nil {
 		for _, mount := range mounts {
-			if mount.Path == agent.MediaMount && mount.Mounted {
+			switch {
+			case mount.Path == agent.MediaMount && mount.Mounted:
 				defaults.MediaShare = mount.Source
+			case mount.Role == agent.RoleMediaCloud:
+				defaults.MediaCloud = mount.Source
 			}
 		}
 	}

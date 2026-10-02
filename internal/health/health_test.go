@@ -273,6 +273,27 @@ func TestShareAlerts(t *testing.T) {
 	}
 }
 
+func TestTieredMediaAlerts(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	h.agent.mounts = []agent.Mount{
+		{Path: "/mnt/homelab/media", Source: "nas:/volume1/media", FSType: "tiered", Mounted: true, Size: 100, Used: 95, Role: agent.RoleMedia},
+		{Path: "/mnt/homelab/local", Source: "nas:/volume1/media", FSType: "nfs", Mounted: true, Size: 100, Used: 95, Role: agent.RoleMediaLocal},
+		{Path: "/mnt/homelab/cloud", Source: "Cloudflare R2: media", FSType: "cloud", Mounted: false, Role: agent.RoleMediaCloud},
+	}
+
+	h.service.CheckSystem(ctx)
+	want := "⚠️ Cloud storage Cloudflare R2: media is not mounted at /mnt/homelab/cloud\n⚠️ Share nas:/volume1/media is 95% full"
+	if len(h.messages) != 1 || h.messages[0] != want {
+		t.Fatalf("messages = %q", h.messages)
+	}
+	for _, share := range h.service.Status().Shares {
+		if share.Path == "/mnt/homelab/cloud" && share.Role != agent.RoleMediaCloud {
+			t.Errorf("cloud = %+v", share)
+		}
+	}
+}
+
 func TestSetChecksKeepsUnchangedChecks(t *testing.T) {
 	h := newHarness(t)
 	kept, err := h.service.AddCheck(CheckInput{Name: "Jellyfin", Kind: HTTPCheck, Target: "http://10.0.0.5:8096"})
