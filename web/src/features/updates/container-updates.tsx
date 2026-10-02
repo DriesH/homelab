@@ -42,10 +42,10 @@ function ContainerRow({ guest, updates }: { guest: GuestUpdates; updates: Update
 
     return (
         <li className="flex flex-col gap-3 px-4 py-3">
-            <div className="flex items-center gap-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
                 <button
                     type="button"
-                    className="flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-default"
+                    className="flex min-w-0 items-center gap-2 text-left disabled:cursor-default sm:flex-1"
                     onClick={() => setOpen(!open)}
                     disabled={count === 0}
                     aria-expanded={open}
@@ -64,16 +64,17 @@ function ContainerRow({ guest, updates }: { guest: GuestUpdates; updates: Update
                     <GuestState guest={guest} count={count} />
                 </button>
 
-                <AutoUpdateSwitch guest={guest} disabled={save.isPending} onChange={setAutoUpdate} />
-
-                <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={Boolean(updates.busy) || !running}
-                    onClick={() => start.mutate(() => api.updateGuest(guest.vmid))}
-                >
-                    Update
-                </Button>
+                <div className="flex items-center justify-between gap-4 pl-6 sm:pl-0">
+                    <AutoUpdateSwitch guest={guest} disabled={save.isPending} onChange={setAutoUpdate} />
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={Boolean(updates.busy) || !running}
+                        onClick={() => start.mutate(() => api.updateGuest(guest.vmid))}
+                    >
+                        Update
+                    </Button>
+                </div>
             </div>
             {open && <PackageList target={guest} />}
         </li>
@@ -94,7 +95,9 @@ function GuestState({ guest, count }: { guest: GuestUpdates; count: number }) {
         return <Badge>{count} updates</Badge>
     }
 
-    return <span className="text-sm text-muted-foreground">up to date · {formatRelative(guest.checkedAt)}</span>
+    return (
+        <span className="truncate text-sm text-muted-foreground">up to date · {formatRelative(guest.checkedAt)}</span>
+    )
 }
 
 type AutoUpdateSwitchProps = {
@@ -106,7 +109,7 @@ type AutoUpdateSwitchProps = {
 function AutoUpdateSwitch({ guest, disabled, onChange }: AutoUpdateSwitchProps) {
     const control = (
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span className="hidden sm:inline">Auto</span>
+            Auto
             <Switch
                 checked={guest.autoUpdate}
                 disabled={disabled || guest.self}
