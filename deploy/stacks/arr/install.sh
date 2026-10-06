@@ -47,12 +47,7 @@ done
 
 preflight() {
     require_proxmox
-
-    # Older lxc-pve AppArmor profiles break Docker in unprivileged LXCs (Proxmox bug 7006).
-    local lxc_version
-    lxc_version="$(dpkg-query -W -f='${Version}' lxc-pve)"
-    dpkg --compare-versions "$lxc_version" ge 6.0.5-2 ||
-        die "lxc-pve $lxc_version is too old for Docker in LXC, update the host first (apt full-upgrade)"
+    require_docker_lxc
 
     for file in compose.yaml recyclarr.yml homelab-arr; do
         [[ -f "$STACK_DIR/$file" ]] || die "missing $file next to install.sh"
@@ -206,29 +201,6 @@ on_exit() {
         log "Removing the media mount"
         remove_media_mount
     fi
-}
-
-install_docker() {
-    log "Installing Docker"
-    # shellcheck disable=SC2016 # expands inside the container
-    pct exec "$CT_ID" -- bash -euc '
-        export DEBIAN_FRONTEND=noninteractive
-        apt-get update -q
-        apt-get install -y -q ca-certificates curl
-        install -m 0755 -d /etc/apt/keyrings
-        curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
-        chmod a+r /etc/apt/keyrings/docker.asc
-        cat >/etc/apt/sources.list.d/docker.sources <<EOF
-Types: deb
-URIs: https://download.docker.com/linux/debian
-Suites: $(. /etc/os-release && echo "$VERSION_CODENAME")
-Components: stable
-Architectures: $(dpkg --print-architecture)
-Signed-By: /etc/apt/keyrings/docker.asc
-EOF
-        apt-get update -q
-        apt-get install -y -q docker-ce docker-ce-cli containerd.io docker-compose-plugin
-    '
 }
 
 push_stack() {
@@ -444,7 +416,7 @@ main() {
     mount_nas
     download_template
     create_container
-    install_docker
+    install_docker "$CT_ID"
     share_media_with_jellyfin
     push_stack
     start_stack

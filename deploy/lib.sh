@@ -73,6 +73,39 @@ container_ip() {
     pct exec "$1" -- hostname -I | awk '{ print $1 }'
 }
 
+# require_docker_lxc stops when the host can't run Docker in an unprivileged LXC.
+require_docker_lxc() {
+    # Older lxc-pve AppArmor profiles break Docker in unprivileged LXCs (Proxmox bug 7006).
+    local lxc_version
+    lxc_version="$(dpkg-query -W -f='${Version}' lxc-pve)"
+    dpkg --compare-versions "$lxc_version" ge 6.0.5-2 ||
+        die "lxc-pve $lxc_version is too old for Docker in LXC, update the host first (apt full-upgrade)"
+}
+
+# install_docker CTID installs Docker and its compose plugin in a container.
+install_docker() {
+    log "Installing Docker"
+    # shellcheck disable=SC2016 # expands inside the container
+    pct exec "$1" -- bash -euc '
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update -q
+        apt-get install -y -q ca-certificates curl
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+        chmod a+r /etc/apt/keyrings/docker.asc
+        cat >/etc/apt/sources.list.d/docker.sources <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/debian
+Suites: $(. /etc/os-release && echo "$VERSION_CODENAME")
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+        apt-get update -q
+        apt-get install -y -q docker-ce docker-ce-cli containerd.io docker-compose-plugin
+    '
+}
+
 # app_description is the description of a new or updated app container. The
 # manager reads the version line.
 app_description() {
