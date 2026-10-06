@@ -14,6 +14,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppAppsRouteImport } from './routes/_app/apps'
 import { Route as AppBackupsRouteImport } from './routes/_app/backups'
+import { Route as AppCloudRouteImport } from './routes/_app/cloud'
 import { Route as AppHealthRouteImport } from './routes/_app/health'
 import { Route as AppJellyfinRouteImport } from './routes/_app/jellyfin'
 import { Route as AppLogsRouteImport } from './routes/_app/logs'
@@ -44,6 +45,11 @@ const AppAppsRoute = AppAppsRouteImport.update({
 const AppBackupsRoute = AppBackupsRouteImport.update({
   id: '/backups',
   path: '/backups',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCloudRoute = AppCloudRouteImport.update({
+  id: '/cloud',
+  path: '/cloud',
   getParentRoute: () => AppRoute,
 } as any)
 const AppHealthRoute = AppHealthRouteImport.update({
@@ -87,6 +93,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/apps': typeof AppAppsRoute
   '/backups': typeof AppBackupsRoute
+  '/cloud': typeof AppCloudRoute
   '/health': typeof AppHealthRoute
   '/jellyfin': typeof AppJellyfinRoute
   '/logs': typeof AppLogsRoute
@@ -99,6 +106,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/apps': typeof AppAppsRoute
   '/backups': typeof AppBackupsRoute
+  '/cloud': typeof AppCloudRoute
   '/health': typeof AppHealthRoute
   '/jellyfin': typeof AppJellyfinRoute
   '/logs': typeof AppLogsRoute
@@ -114,6 +122,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/_app/apps': typeof AppAppsRoute
   '/_app/backups': typeof AppBackupsRoute
+  '/_app/cloud': typeof AppCloudRoute
   '/_app/health': typeof AppHealthRoute
   '/_app/jellyfin': typeof AppJellyfinRoute
   '/_app/logs': typeof AppLogsRoute
@@ -130,6 +139,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/apps'
     | '/backups'
+    | '/cloud'
     | '/health'
     | '/jellyfin'
     | '/logs'
@@ -142,6 +152,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/apps'
     | '/backups'
+    | '/cloud'
     | '/health'
     | '/jellyfin'
     | '/logs'
@@ -156,6 +167,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/_app/apps'
     | '/_app/backups'
+    | '/_app/cloud'
     | '/_app/health'
     | '/_app/jellyfin'
     | '/_app/logs'
@@ -206,6 +218,13 @@ declare module '@tanstack/react-router' {
       path: '/backups'
       fullPath: '/backups'
       preLoaderRoute: typeof AppBackupsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/cloud': {
+      id: '/_app/cloud'
+      path: '/cloud'
+      fullPath: '/cloud'
+      preLoaderRoute: typeof AppCloudRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/health': {
@@ -263,6 +282,7 @@ declare module '@tanstack/react-router' {
 interface AppRouteChildren {
   AppAppsRoute: typeof AppAppsRoute
   AppBackupsRoute: typeof AppBackupsRoute
+  AppCloudRoute: typeof AppCloudRoute
   AppHealthRoute: typeof AppHealthRoute
   AppJellyfinRoute: typeof AppJellyfinRoute
   AppLogsRoute: typeof AppLogsRoute
@@ -276,6 +296,7 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppAppsRoute: AppAppsRoute,
   AppBackupsRoute: AppBackupsRoute,
+  AppCloudRoute: AppCloudRoute,
   AppHealthRoute: AppHealthRoute,
   AppJellyfinRoute: AppJellyfinRoute,
   AppLogsRoute: AppLogsRoute,

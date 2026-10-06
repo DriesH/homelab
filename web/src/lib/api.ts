@@ -408,6 +408,43 @@ export type SettingsChange = {
 
 export type SettingsImport = { applied: boolean; changes: SettingsChange[] }
 
+export type CloudProvider = 'r2' | 'b2' | 'hetzner' | 'wasabi' | 'aws' | 's3' | 'storage-box' | 'sftp'
+
+export type CloudSettings = {
+    provider: CloudProvider
+    accountId?: string
+    bucket?: string
+    region?: string
+    endpoint?: string
+    accessKey?: string
+    secretKey?: string
+    host?: string
+    port?: number
+    user?: string
+    password?: string
+    path?: string
+}
+
+export type CloudRule = { minAgeDays: number; targetPercent: number; minSizeMb: number; hour: number; minute: number }
+
+export type CloudJob = {
+    action: 'enable' | 'disable'
+    state: 'idle' | 'running' | 'succeeded' | 'failed'
+    message?: string
+    log?: string
+    startedAt?: string
+    finishedAt?: string
+}
+
+export type Cloud = {
+    settings: (CloudSettings & { hasSecretKey: boolean; hasPassword: boolean }) | null
+    label?: string
+    key: 'none' | 'unconfirmed' | 'confirmed'
+    rule: CloudRule
+    host: { enabled: boolean; label?: string; job?: CloudJob } | null
+    hostError?: string
+}
+
 async function fail(response: Response): Promise<never> {
     const data = await response.json().catch(() => ({}))
     throw new ApiError(response.status, data.error ?? response.statusText)
@@ -534,6 +571,16 @@ export const api = {
     restoreDataBackup,
     importSettings: (yaml: string, apply: boolean) =>
         request<SettingsImport>('POST', `/settings/import${apply ? '?apply=1' : ''}`, yaml, 'application/yaml'),
+    cloud: () => request<Cloud>('GET', '/cloud'),
+    saveCloudSettings: (settings: CloudSettings) => request<void>('PUT', '/cloud/settings', settings),
+    testCloud: (settings: CloudSettings) => request<void>('POST', '/cloud/test', settings),
+    createCloudKey: () => request<{ key: string }>('POST', '/cloud/key'),
+    confirmCloudKey: (groups: string) => request<void>('POST', '/cloud/key/confirm', { groups }),
+    revealCloudKey: (password: string, code: string) =>
+        request<{ key: string }>('POST', '/cloud/key/reveal', { password, code }),
+    saveCloudRule: (rule: CloudRule) => request<void>('PUT', '/cloud/rule', rule),
+    enableCloud: () => request<void>('POST', '/cloud/enable'),
+    disableCloud: () => request<void>('POST', '/cloud/disable'),
     health: () => request<Health>('GET', '/health'),
     refreshHealth: () => request<Health>('POST', '/health/refresh'),
     addCheck: (input: CheckInput) => request<ServiceCheck>('POST', '/health/checks', input),

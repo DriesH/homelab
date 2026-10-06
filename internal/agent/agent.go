@@ -214,6 +214,9 @@ func (c *Client) StartUpgrade(ctx context.Context, bundle io.Reader, signature r
 
 	if response.StatusCode >= 300 {
 		message, _ := io.ReadAll(io.LimitReader(response.Body, 512))
+		if response.StatusCode == http.StatusUnprocessableEntity {
+			return &RefusedError{Message: strings.TrimSpace(string(message))}
+		}
 		return fmt.Errorf("host agent: %s", strings.TrimSpace(string(message)))
 	}
 
@@ -307,6 +310,16 @@ func (c *Client) RunJob(ctx context.Context, request JobRequest) (Job, error) {
 	return job, nil
 }
 
+// RefusedError is a 422 from the agent: the request was fine, but the host
+// said no, like a cloud storage that refuses the keys. Its message is for the user.
+type RefusedError struct {
+	Message string
+}
+
+func (e *RefusedError) Error() string {
+	return e.Message
+}
+
 func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
 	var reader io.Reader
 	if body != nil {
@@ -330,6 +343,9 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 
 	if response.StatusCode >= 300 {
 		message, _ := io.ReadAll(io.LimitReader(response.Body, 512))
+		if response.StatusCode == http.StatusUnprocessableEntity {
+			return &RefusedError{Message: strings.TrimSpace(string(message))}
+		}
 		return fmt.Errorf("host agent %s: %s %s", path, response.Status, strings.TrimSpace(string(message)))
 	}
 
