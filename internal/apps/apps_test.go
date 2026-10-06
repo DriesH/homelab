@@ -44,6 +44,18 @@ func (f *fakeAgent) ChangeVPN(_ context.Context, vmid int, settings agent.VPNSet
 	return nil
 }
 
+func (f *fakeAgent) MinecraftPlayers(_ context.Context, vmid int) (agent.MinecraftPlayers, error) {
+	return agent.MinecraftPlayers{Whitelist: []string{"Dries_H"}, Operators: []string{"Dries_H"}}, nil
+}
+
+func (f *fakeAgent) ChangeMinecraftPlayers(_ context.Context, vmid int, players agent.MinecraftPlayers) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.actions = append(f.actions, fmt.Sprintf("players %d %s", vmid, strings.Join(players.Whitelist, ",")))
+	f.status = agent.AppInstallStatus{App: "minecraft", Action: agent.ActionPlayers, State: agent.UpgradeRunning}
+	return nil
+}
+
 func (f *fakeAgent) RemoveApp(_ context.Context, app string, vmid int) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -556,5 +568,70 @@ func TestChangeVPN(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("no message")
+	}
+}
+
+func minecraftResources(tags, status string) []proxmox.Resource {
+	return append(baseResources(), proxmox.Resource{Type: "lxc", Node: "pve", VMID: 150, Name: "minecraft", Status: status, Tags: tags})
+}
+
+func TestStatusShowsTheMinecraftAddresses(t *testing.T) {
+	pve := &fakeProxmox{
+		resources:   minecraftResources("homelab;minecraft", "running"),
+		description: "Homelab Minecraft server (Paper)\nhomelab-version: v0.9.1\nhomelab-address: dries.joinmc.link\n",
+	}
+	service := New(Options{Agent: &fakeAgent{}, Proxmox: pve, SelfVMID: 100, Version: "v0.9.1"})
+
+	view, _ := service.Status(context.Background())
+	minecraft := appByID(t, view, "minecraft")
+	if !minecraft.Installed || !minecraft.Managed || minecraft.UpdateAvailable || minecraft.HostURL != "" {
+		t.Fatalf("minecraft = %+v", minecraft)
+	}
+	if link := minecraft.Links[0]; !link.Address || link.URL != "192.168.1.50:25565" {
+		t.Fatalf("link = %+v", link)
+	}
+	if minecraft.PublicAddress != "dries.joinmc.link" {
+		t.Fatalf("public address = %q", minecraft.PublicAddress)
+	}
+	if defaults := view.Defaults.Minecraft; defaults.Memory != 4 || defaults.AcceptEULA || defaults.Whitelist == nil {
+		t.Fatalf("defaults = %+v", defaults)
+	}
+}
+
+func TestChangePlayers(t *testing.T) {
+	ctx := context.Background()
+	fake := &fakeAgent{}
+	pve := &fakeProxmox{resources: minecraftResources("homelab;minecraft", "running")}
+	service := New(Options{Agent: fake, Proxmox: pve, SelfVMID: 100, PollInterval: 10 * time.Millisecond})
+
+	if players, err := service.Players(ctx, "minecraft"); err != nil || players.Whitelist[0] != "Dries_H" {
+		t.Fatalf("players = %+v, err = %v", players, err)
+	}
+	if _, err := service.Players(ctx, "media"); !errors.Is(err, ErrUnknownApp) {
+		t.Fatalf("the media stack has no players: %v", err)
+	}
+	if err := service.ChangePlayers(ctx, ctx, "minecraft", agent.MinecraftPlayers{Whitelist: []string{"x y"}}); !errors.Is(err, agent.ErrInvalidAnswers) {
+		t.Fatalf("bad name: %v", err)
+	}
+
+	players := agent.MinecraftPlayers{Whitelist: []string{"Dries_H", "Friend1"}, Operators: []string{"Dries_H"}}
+	if err := service.ChangePlayers(ctx, ctx, "minecraft", players); err != nil {
+		t.Fatal(err)
+	}
+	if fake.actions[0] != "players 150 Dries_H,Friend1" {
+		t.Fatalf("actions = %v", fake.actions)
+	}
+	if err := service.ChangePlayers(ctx, ctx, "minecraft", players); !errors.Is(err, ErrBusy) {
+		t.Fatalf("while the first change runs: %v", err)
+	}
+
+	// Only for a running server that Homelab installed.
+	pve.resources = minecraftResources("minecraft", "running")
+	if _, err := service.Players(ctx, "minecraft"); !errors.Is(err, ErrNotManaged) && !errors.Is(err, ErrNotInstalled) {
+		t.Fatalf("not managed: %v", err)
+	}
+	pve.resources = minecraftResources("homelab;minecraft", "stopped")
+	if _, err := service.Players(ctx, "minecraft"); !errors.Is(err, ErrNotRunning) {
+		t.Fatalf("stopped: %v", err)
 	}
 }
