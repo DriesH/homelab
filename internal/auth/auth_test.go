@@ -150,6 +150,33 @@ func TestSessionsSurviveRestart(t *testing.T) {
 	}
 }
 
+func TestCheckPasswordAndCode(t *testing.T) {
+	service := newTestService(t, time.Unix(59, 0))
+
+	if err := service.CheckPasswordAndCode("secret", "000000", "10.0.0.1"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("wrong code: %v", err)
+	}
+	if err := service.CheckPasswordAndCode("wrong", "287082", "10.0.0.1"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("wrong password: %v", err)
+	}
+	if err := service.CheckPasswordAndCode("secret", "287082", "10.0.0.1"); err != nil {
+		t.Fatalf("right password and code: %v", err)
+	}
+	if err := service.CheckPasswordAndCode("secret", "287082", "10.0.0.1"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("reused code: %v", err)
+	}
+	if _, err := service.Login("admin", "secret", "287082", "10.0.0.2"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("login with a code that was used for a check: %v", err)
+	}
+
+	for range maxFailures {
+		service.CheckPasswordAndCode("wrong", "000000", "10.0.0.3")
+	}
+	if _, err := service.Login("admin", "secret", "287082", "10.0.0.3"); !errors.Is(err, ErrLockedOut) {
+		t.Fatalf("login after failed checks: %v", err)
+	}
+}
+
 func TestCheckPasswordCountsFailures(t *testing.T) {
 	service := newTestService(t, time.Unix(59, 0))
 

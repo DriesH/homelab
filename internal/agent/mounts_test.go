@@ -36,10 +36,11 @@ nas:/volume1/old /mnt/old nfs noauto 0 0
 	writeFile(t, filepath.Join(dir, "mountinfo"), mountInfo)
 
 	return &Mounts{
-		UnitDir:   dir,
-		Fstab:     filepath.Join(dir, "fstab"),
-		MountInfo: filepath.Join(dir, "mountinfo"),
-		Timeout:   100 * time.Millisecond,
+		UnitDir:    dir,
+		Fstab:      filepath.Join(dir, "fstab"),
+		MountInfo:  filepath.Join(dir, "mountinfo"),
+		CloudLabel: filepath.Join(dir, "label"),
+		Timeout:    100 * time.Millisecond,
 		statfs: func(string) (int64, int64, error) {
 			return 1000, 950, nil
 		},
@@ -90,4 +91,59 @@ func TestMountsReportsHungShare(t *testing.T) {
 	if media := mounts.List()[1]; media.Error != "not responding" || time.Since(started) > 50*time.Millisecond {
 		t.Fatalf("second call: %+v after %s", media, time.Since(started))
 	}
+}
+
+func TestMountsListsTieredMedia(t *testing.T) {
+	mounts := newTestMounts(t, `22 1 0:21 / / rw,relatime shared:1 - ext4 /dev/mapper/pve-root rw
+90 22 0:50 / /mnt/homelab/local rw,noatime shared:40 - nfs 192.168.1.10:/volume1/media rw,vers=4.2
+93 22 0:53 / /mnt/homelab/cloud rw,nosuid shared:43 - fuse.rclone media-crypt: rw,user_id=0
+94 22 0:54 / /mnt/homelab/media rw,relatime shared:44 - fuse.mergerfs homelab-media rw,user_id=0
+`)
+	dir := mounts.UnitDir
+	writeFile(t, filepath.Join(dir, "mnt-homelab-media.mount"), `[Mount]
+What=/mnt/homelab/local=RW:/mnt/homelab/cloud=NC
+Where=/mnt/homelab/media
+Type=fuse.mergerfs
+Options=allow_other,cache.files=off,category.create=ff
+`)
+	writeFile(t, filepath.Join(dir, "mnt-homelab-local.mount"), `[Mount]
+What=192.168.1.10:/volume1/media
+Where=/mnt/homelab/local
+Type=nfs
+`)
+	writeFile(t, filepath.Join(dir, "homelab-cloud.service"), "[Service]\nType=notify\n")
+	writeFile(t, filepath.Join(dir, "label"), "Cloudflare R2: media\n")
+
+	byPath := map[string]Mount{}
+	for _, mount := range mounts.List() {
+		byPath[mount.Path] = mount
+	}
+
+	media := byPath["/mnt/homelab/media"]
+	if media.FSType != "tiered" || media.Source != "192.168.1.10:/volume1/media" || media.Role != RoleMedia || !media.Mounted {
+		t.Errorf("media = %+v", media)
+	}
+	local := byPath["/mnt/homelab/local"]
+	if local.FSType != "nfs" || local.Role != RoleMediaLocal || !local.Mounted || local.Size != 1000 {
+		t.Errorf("local = %+v", local)
+	}
+	cloud := byPath["/mnt/homelab/cloud"]
+	if cloud.FSType != "cloud" || cloud.Source != "Cloudflare R2: media" || cloud.Role != RoleMediaCloud || !cloud.Mounted || cloud.Size != 0 || cloud.Used != 0 {
+		t.Errorf("cloud = %+v", cloud)
+	}
+}
+
+func TestMountsReportsCloudThatIsDown(t *testing.T) {
+	mounts := newTestMounts(t, "")
+	writeFile(t, filepath.Join(mounts.UnitDir, "homelab-cloud.service"), "[Service]\n")
+
+	for _, mount := range mounts.List() {
+		if mount.Path == "/mnt/homelab/cloud" {
+			if mount.Mounted || mount.Role != RoleMediaCloud {
+				t.Fatalf("cloud = %+v", mount)
+			}
+			return
+		}
+	}
+	t.Fatal("the cloud mount is missing")
 }
