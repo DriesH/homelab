@@ -53,7 +53,9 @@ preflight() {
         [[ -f "$STACK_DIR/$file" ]] || die "missing $file next to install.sh"
     done
 
-    container_exists "$CT_HOSTNAME" && die "a container named '$CT_HOSTNAME' already exists"
+    if container_exists "$CT_HOSTNAME"; then
+        die "a container named '$CT_HOSTNAME' already exists"
+    fi
 
     if [[ -z "$JELLYFIN_CTID" ]]; then
         JELLYFIN_CTID="$(pct list | awk 'NR > 1 && $NF == "jellyfin" { print $1 }')"

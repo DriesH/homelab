@@ -42,7 +42,9 @@ done
 preflight() {
     require_proxmox
     [[ -x "$STACK_DIR/homelab-jellyfin" ]] || die "missing homelab-jellyfin next to install.sh"
-    container_exists "$CT_HOSTNAME" && die "a container named '$CT_HOSTNAME' already exists"
+    if container_exists "$CT_HOSTNAME"; then
+        die "a container named '$CT_HOSTNAME' already exists"
+    fi
 
     if [[ -e "$GPU_DEVICE" ]]; then
         GPU=1

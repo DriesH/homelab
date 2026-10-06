@@ -171,19 +171,22 @@ export function MinecraftForm({ defaults, saved, onDone }: MinecraftFormProps) {
             >
                 <ol className="list-decimal space-y-1 pl-5 text-xs text-muted-foreground">
                     <li>
-                        On{' '}
+                        Open the{' '}
                         <a
                             className="underline"
-                            href="https://playit.gg/account/agents"
+                            href="https://playit.gg/account/setup/wizard/new-account/docker/docker-name"
                             target="_blank"
                             rel="noreferrer"
                         >
-                            playit.gg
+                            Docker setup of playit.gg
                         </a>
-                        , add an agent of the type Docker, and copy its secret key.
+                        , give the agent a name, and copy its secret key. playit.gg shows it only once.
                     </li>
-                    <li>Add a tunnel of the type Minecraft Java, to the local address localhost:25565.</li>
-                    <li>Copy the address of the tunnel, like name.joinmc.link. Your friends use it.</li>
+                    <li>Paste the key below and install. The agent then starts next to the server.</li>
+                    <li>
+                        On playit.gg, the agent is now online. Add a tunnel of the type Minecraft Java, to the local
+                        address localhost:25565. Your friends use the address of the tunnel, like name.joinmc.link.
+                    </li>
                 </ol>
                 <div className="grid gap-4 sm:grid-cols-2">
                     <Field id="mc-playit" label="Secret key (optional)">
@@ -196,7 +199,11 @@ export function MinecraftForm({ defaults, saved, onDone }: MinecraftFormProps) {
                             placeholder={keySaved ? keepSaved : undefined}
                         />
                     </Field>
-                    <Field id="mc-address" label="Address for friends (optional)" help="Homelab shows it on this page.">
+                    <Field
+                        id="mc-address"
+                        label="Address for friends (optional)"
+                        help="Only when the tunnel exists already. Homelab shows it on this page."
+                    >
                         <Input
                             id="mc-address"
                             placeholder="name.joinmc.link"

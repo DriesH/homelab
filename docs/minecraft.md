@@ -39,10 +39,14 @@ In Minecraft, go to **Multiplayer > Add Server**:
 
 playit.gg gives the server a fixed public address, so you open no ports on your router. Your friends install nothing.
 
-1. On playit.gg, add an agent of the type **Docker**. Copy its secret key. playit.gg shows it only once.
-2. Add a tunnel of the type **Minecraft Java**, to the local address `localhost:25565`.
-3. Copy the address of the tunnel.
-4. In the install form of Homelab, paste the secret key, and the address if you want to see it on the Apps page.
+playit.gg needs a running agent before you can add a tunnel. So the order is:
+
+1. Open the [Docker setup of playit.gg](https://playit.gg/account/setup/wizard/new-account/docker/docker-name). The agents page only offers a download, which is not what you need here. Give the agent a name, and copy its secret key. playit.gg shows it only once.
+2. Paste the key in the install form of Homelab, and install. The agent starts next to the server.
+3. On playit.gg, the agent is now online. Add a tunnel of the type **Minecraft Java**, to the local address `localhost:25565`.
+4. Give the address of the tunnel to your friends, like `name.joinmc.link`.
+
+The install form also has a field for that address, so the Apps page shows it. Fill it in only when the tunnel already exists, for example when you install again.
 
 The free plan of playit.gg is enough for Minecraft Java. The traffic goes through the servers of playit.gg. Everybody can find the address, so keep the whitelist on.
 
