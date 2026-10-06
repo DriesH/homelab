@@ -54,7 +54,9 @@ preflight() {
     require_proxmox
     require_docker_lxc
     [[ -f "$STACK_DIR/compose.yaml" ]] || die "missing compose.yaml next to install.sh"
-    container_exists "$CT_HOSTNAME" && die "a container named '$CT_HOSTNAME' already exists"
+    if container_exists "$CT_HOSTNAME"; then
+        die "a container named '$CT_HOSTNAME' already exists"
+    fi
 }
 
 # load_answers reads KEY=value lines. Values are only stored, never run.
