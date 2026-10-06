@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpCircleIcon, Loader2Icon, ShieldIcon, Trash2Icon } from 'lucide-react'
+import { ArrowUpCircleIcon, Loader2Icon, ShieldIcon, Trash2Icon, UsersIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
@@ -16,18 +16,22 @@ import {
 import { Button } from '@/components/ui/button'
 import { api, type CatalogApp } from '@/lib/api'
 import { appsQuery } from '@/lib/queries'
+import { PlayersDialog } from './players-dialog'
 import { VpnDialog } from './vpn-dialog'
 
 const updateText: Record<string, string> = {
     media: 'Homelab makes a snapshot, updates the packages, copies the stack of this Homelab release, and downloads the new images. The apps restart, so they are offline for a few minutes. Your settings in the apps stay.',
     jellyfin:
         'Homelab makes a snapshot, then updates Jellyfin and the other packages. Jellyfin restarts, so it is offline for a minute. Your settings, users and libraries stay.',
+    minecraft:
+        'Homelab makes a snapshot, updates the packages and the images, and restarts the server. When a newer stable Paper is out, the server starts with it. The world and the players stay. A world can not go back to an older Minecraft version.',
 }
 
 const removeText: Record<string, string> = {
     media: 'The downloads disk goes with it, so downloads that did not finish are lost. Your movies and series stay in the media folder, and Jellyfin keeps its libraries.',
     jellyfin:
         'Its settings, users and watch history go with it, and the Jellyfin page disconnects. Your movies and series stay in the media folder.',
+    minecraft: 'The world goes with it, unless you restore it from a backup.',
 }
 
 // AppActions are the buttons of an app that Homelab installed: VPN (media stack only), Update and Remove.
@@ -35,6 +39,7 @@ export function AppActions({ app }: { app: CatalogApp }) {
     const queryClient = useQueryClient()
     const [confirm, setConfirm] = useState<'update' | 'remove' | null>(null)
     const [vpnOpen, setVpnOpen] = useState(false)
+    const [playersOpen, setPlayersOpen] = useState(false)
 
     const refresh = () => queryClient.invalidateQueries({ queryKey: appsQuery.queryKey })
     const update = useMutation({
@@ -57,6 +62,16 @@ export function AppActions({ app }: { app: CatalogApp }) {
                     VPN
                 </Button>
             )}
+            {app.id === 'minecraft' && (
+                <Button
+                    variant="outline"
+                    disabled={busy || app.status !== 'running'}
+                    onClick={() => setPlayersOpen(true)}
+                >
+                    <UsersIcon />
+                    Players
+                </Button>
+            )}
             <Button
                 variant={app.updateAvailable ? 'default' : 'outline'}
                 disabled={busy || app.status !== 'running'}
@@ -71,6 +86,7 @@ export function AppActions({ app }: { app: CatalogApp }) {
             </Button>
 
             <VpnDialog app={app} open={vpnOpen} onOpenChange={setVpnOpen} />
+            {app.id === 'minecraft' && <PlayersDialog open={playersOpen} onOpenChange={setPlayersOpen} />}
 
             <AlertDialog open={confirm === 'update'} onOpenChange={(open) => !open && setConfirm(null)}>
                 <AlertDialogContent>
@@ -110,9 +126,9 @@ export function AppActions({ app }: { app: CatalogApp }) {
                                 This removes container {app.vmid} with its disks and snapshots. {removeText[app.id]}
                             </span>
                             <span>
-                                The backups of the container stay, so you can restore it on the Backups page. When no
-                                other container uses the media folder, Homelab also removes its mount on the host. The
-                                files stay.
+                                The backups of the container stay, so you can restore it on the Backups page.
+                                {app.id !== 'minecraft' &&
+                                    ' When no other container uses the media folder, Homelab also removes its mount on the host. The files stay.'}
                             </span>
                         </AlertDialogDescription>
                     </AlertDialogHeader>

@@ -19,6 +19,7 @@ import { api, type Apps, type CatalogApp, type MediaStackAnswers, type SavedAnsw
 import { appsQuery } from '@/lib/queries'
 import { Field, Section } from './form-parts'
 import { JellyfinForm } from './jellyfin-form'
+import { MinecraftForm } from './minecraft-form'
 import { keepSaved } from './keep-saved'
 import { MediaSourceFields } from './media-source'
 
@@ -31,23 +32,25 @@ type InstallDialogProps = {
     onOpenChange: (open: boolean) => void
 }
 
+const descriptions: Record<string, string> = {
+    jellyfin: 'Homelab makes a new container for Jellyfin on this host, with read access to your movies and series.',
+    media: 'Homelab makes a new container for it on this host. Nothing else changes, except that Jellyfin gets read access to the media folder.',
+    minecraft: 'Homelab makes a new container on this host with a Paper server: the Minecraft Java server, but faster.',
+}
+
 export function InstallDialog({ app, defaults, saved, open, onOpenChange }: InstallDialogProps) {
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-xl">
                 <DialogHeader>
-                    <DialogTitle>
-                        Install {app.id === 'jellyfin' ? 'Jellyfin' : `the ${app.name.toLowerCase()}`}
-                    </DialogTitle>
-                    <DialogDescription>
-                        {app.id === 'jellyfin'
-                            ? 'Homelab makes a new container for Jellyfin on this host, with read access to your movies and series.'
-                            : 'Homelab makes a new container for it on this host. Nothing else changes, except that Jellyfin gets read access to the media folder.'}
-                    </DialogDescription>
+                    <DialogTitle>Install {app.id === 'media' ? `the ${app.name.toLowerCase()}` : app.name}</DialogTitle>
+                    <DialogDescription>{descriptions[app.id]}</DialogDescription>
                 </DialogHeader>
                 {open &&
                     (app.id === 'jellyfin' ? (
                         <JellyfinForm defaults={defaults} saved={saved} onDone={() => onOpenChange(false)} />
+                    ) : app.id === 'minecraft' ? (
+                        <MinecraftForm defaults={defaults} saved={saved} onDone={() => onOpenChange(false)} />
                     ) : (
                         <MediaStackForm
                             app={app}
