@@ -56,6 +56,7 @@ Open http://localhost:5173 and log in with `admin` / `homelab-dev-password`. See
 - [App names (seerr.homelab.local)](docs/app-names.md)
 - [Media stack](docs/media-stack.md)
 - [Media folder: on a NAS or on the host](docs/media-folder.md)
+- [Minecraft server](docs/minecraft.md)
 - [Settings file (homelab.yaml)](docs/settings-file.md)
 - [Uninstall](docs/uninstall.md)
 - [Development](docs/development.md)
