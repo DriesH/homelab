@@ -182,6 +182,11 @@ install_scripts() {
         install -d -m 0755 "$SCRIPTS_DIR/stacks/jellyfin"
         install -m 0755 "$BUNDLE_DIR/stacks/jellyfin/install.sh" "$BUNDLE_DIR/stacks/jellyfin/homelab-jellyfin" "$SCRIPTS_DIR/stacks/jellyfin/"
     fi
+    if [[ -d "$BUNDLE_DIR/stacks/minecraft" ]]; then
+        install -d -m 0755 "$SCRIPTS_DIR/stacks/minecraft"
+        install -m 0755 "$BUNDLE_DIR/stacks/minecraft/install.sh" "$SCRIPTS_DIR/stacks/minecraft/"
+        install -m 0644 "$BUNDLE_DIR/stacks/minecraft/compose.yaml" "$SCRIPTS_DIR/stacks/minecraft/"
+    fi
     local command
     for command in restore uninstall; do
         printf '#!/bin/sh\nexec %s/install.sh --%s "$@"\n' "$SCRIPTS_DIR" "$command" >"/usr/local/sbin/homelab-$command"
