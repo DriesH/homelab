@@ -115,6 +115,8 @@ type Apps interface {
 	Remove(ctx context.Context, background context.Context, id string) error
 	VPNCountries(ctx context.Context, id string) (string, error)
 	ChangeVPN(ctx context.Context, background context.Context, id string, settings agent.VPNSettings) error
+	Players(ctx context.Context, id string) (agent.MinecraftPlayers, error)
+	ChangePlayers(ctx context.Context, background context.Context, id string, players agent.MinecraftPlayers) error
 }
 
 type SettingsFile interface {
@@ -211,6 +213,8 @@ func New(options Options) http.Handler {
 	mux.Handle("POST /api/apps/{id}/remove", s.requireSession(http.HandlerFunc(s.appsRemove)))
 	mux.Handle("GET /api/apps/{id}/vpn", s.requireSession(http.HandlerFunc(s.appsVPN)))
 	mux.Handle("PUT /api/apps/{id}/vpn", s.requireSession(http.HandlerFunc(s.appsChangeVPN)))
+	mux.Handle("GET /api/apps/{id}/players", s.requireSession(http.HandlerFunc(s.appsPlayers)))
+	mux.Handle("PUT /api/apps/{id}/players", s.requireSession(http.HandlerFunc(s.appsChangePlayers)))
 	mux.Handle("GET /api/settings/export", s.requireSession(http.HandlerFunc(s.settingsExport)))
 	mux.Handle("POST /api/settings/import", s.requireSession(http.HandlerFunc(s.settingsImport)))
 	mux.Handle("POST /api/data-backup/download", s.requireSession(http.HandlerFunc(s.dataBackupDownload)))

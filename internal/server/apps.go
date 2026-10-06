@@ -66,6 +66,26 @@ func (s *server) appsChangeVPN(w http.ResponseWriter, r *http.Request) {
 	s.writeAppsResult(w, s.Apps.ChangeVPN(r.Context(), s.Background, r.PathValue("id"), settings), http.StatusAccepted)
 }
 
+func (s *server) appsPlayers(w http.ResponseWriter, r *http.Request) {
+	players, err := s.Apps.Players(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeAppsResult(w, err, 0)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, players)
+}
+
+func (s *server) appsChangePlayers(w http.ResponseWriter, r *http.Request) {
+	var players agent.MinecraftPlayers
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&players); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	s.writeAppsResult(w, s.Apps.ChangePlayers(r.Context(), s.Background, r.PathValue("id"), players), http.StatusAccepted)
+}
+
 func (s *server) writeAppsResult(w http.ResponseWriter, err error, success int) {
 	switch {
 	case errors.Is(err, agent.ErrInvalidAnswers):

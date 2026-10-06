@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ExternalLinkIcon, Loader2Icon, RotateCwIcon, TriangleAlertIcon } from 'lucide-react'
+import { CopyIcon, ExternalLinkIcon, Loader2Icon, RotateCwIcon, TriangleAlertIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -13,6 +13,10 @@ import { appsQuery } from '@/lib/queries'
 import { formatDateTime } from '@/lib/format'
 import { AppActions } from './app-actions'
 import { InstallDialog } from './install-dialog'
+
+// On a phone, the buttons go below the description, so the text keeps its width.
+const actionClass =
+    'flex flex-wrap justify-end gap-2 max-sm:col-start-1 max-sm:row-span-1 max-sm:row-start-auto max-sm:justify-self-start max-sm:justify-start max-sm:pt-2'
 
 export function AppsPage() {
     const { data, error } = useQuery(appsQuery)
@@ -73,7 +77,7 @@ function AppCard({ app, defaults }: { app: CatalogApp; defaults: Apps['defaults'
 
     return (
         <Card>
-            <CardHeader>
+            <CardHeader className="max-sm:has-data-[slot=card-action]:grid-cols-1">
                 <CardTitle className="flex flex-wrap items-center gap-2">
                     {app.name}
                     {app.installed && (
@@ -95,12 +99,12 @@ function AppCard({ app, defaults }: { app: CatalogApp; defaults: Apps['defaults'
                     )}
                 </CardDescription>
                 {app.installed && app.managed && !running && (
-                    <CardAction className="flex flex-wrap justify-end gap-2">
+                    <CardAction className={actionClass}>
                         <AppActions app={app} />
                     </CardAction>
                 )}
                 {!app.installed && !running && (
-                    <CardAction className="flex flex-wrap justify-end gap-2">
+                    <CardAction className={actionClass}>
                         {saved ? (
                             <>
                                 <Button variant="outline" onClick={() => setInstallOpen(true)}>
@@ -143,7 +147,9 @@ function AppCard({ app, defaults }: { app: CatalogApp; defaults: Apps['defaults'
                 <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     {app.links.map((link) => (
                         <li key={link.name}>
-                            {link.url ? (
+                            {link.address && link.url ? (
+                                <AddressItem name={link.name} description={link.description} address={link.url} />
+                            ) : link.url ? (
                                 <a
                                     href={link.url}
                                     target="_blank"
@@ -164,7 +170,18 @@ function AppCard({ app, defaults }: { app: CatalogApp; defaults: Apps['defaults'
                             )}
                         </li>
                     ))}
+                    {app.installed && app.publicAddress && (
+                        <li>
+                            <AddressItem name="For friends" description="playit.gg" address={app.publicAddress} />
+                        </li>
+                    )}
                 </ul>
+                {app.installed && app.id === 'minecraft' && (
+                    <p className="text-xs text-muted-foreground">
+                        In Minecraft, go to Multiplayer &gt; Add Server and use one of the addresses above. Only players
+                        on the whitelist can join: add your friends with Players.
+                    </p>
+                )}
                 {app.installed && app.id === 'media' && (
                     <p className="text-xs text-muted-foreground">
                         Log in to Seerr with your Jellyfin account. If you gave no Jellyfin admin during the install,
@@ -198,6 +215,11 @@ const operationText = {
         failed: 'The update failed',
     },
     remove: { running: 'Removing…', runningDetail: 'You can leave this page.', failed: 'The removal failed' },
+    players: {
+        running: 'Changing the players…',
+        runningDetail: 'The server applies the change at once, without a restart.',
+        failed: 'The players did not change',
+    },
     vpn: {
         running: 'Changing the VPN…',
         runningDetail: 'Downloads stop for a minute while the VPN restarts. You can leave this page.',
@@ -267,4 +289,29 @@ function OperationProgress({
     }
 
     return null
+}
+
+// AddressItem shows an address to type in a game, with a button to copy it.
+function AddressItem({ name, description, address }: { name: string; description: string; address: string }) {
+    async function copy() {
+        try {
+            await navigator.clipboard.writeText(address)
+            toast.success(`Copied ${address}`)
+        } catch {
+            toast.error('Could not copy, select the address and copy it yourself')
+        }
+    }
+
+    return (
+        <div className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm">
+            <span className="min-w-0">
+                <span className="font-medium">{name}</span>
+                <span className="text-muted-foreground"> · {description}</span>
+                <span className="block truncate font-mono text-xs select-all">{address}</span>
+            </span>
+            <Button variant="ghost" size="icon-sm" aria-label={`Copy ${address}`} onClick={copy}>
+                <CopyIcon />
+            </Button>
+        </div>
+    )
 }

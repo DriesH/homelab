@@ -100,6 +100,28 @@ func run(socketPath string, socketGID int, logger *slog.Logger) error {
 		logger.Info("vpn change started", "vmid", request.VMID)
 		w.WriteHeader(http.StatusAccepted)
 	})
+	mux.HandleFunc("GET /v1/apps/minecraft/players", func(w http.ResponseWriter, r *http.Request) {
+		vmid, _ := strconv.Atoi(r.URL.Query().Get("vmid"))
+		players, err := apps.Players(r.Context(), vmid)
+		if err != nil {
+			writeAppError(w, logger, agent.MinecraftApp, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, players)
+	})
+	mux.HandleFunc("PUT /v1/apps/minecraft/players", func(w http.ResponseWriter, r *http.Request) {
+		var request agent.PlayersRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&request); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		if err := apps.ChangePlayers(request.VMID, request.MinecraftPlayers); err != nil {
+			writeAppError(w, logger, agent.MinecraftApp, err)
+			return
+		}
+		logger.Info("change of the minecraft players started", "vmid", request.VMID)
+		w.WriteHeader(http.StatusAccepted)
+	})
 	mux.HandleFunc("GET /v1/apps/{app}/answers", func(w http.ResponseWriter, r *http.Request) {
 		saved, err := apps.Saved(r.PathValue("app"))
 		if err != nil {

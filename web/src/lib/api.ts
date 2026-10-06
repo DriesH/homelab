@@ -311,7 +311,7 @@ export type DockerLogs = {
 
 export type AppOperation = {
     app?: string
-    action?: 'install' | 'update' | 'remove' | 'vpn'
+    action?: 'install' | 'update' | 'remove' | 'vpn' | 'players'
     state: 'idle' | 'running' | 'succeeded' | 'failed'
     message?: string
     startedAt?: string
@@ -333,12 +333,34 @@ export type JellyfinAnswers = {
     storage: string
 }
 
+export type MinecraftAnswers = {
+    acceptEula: boolean
+    // memory is in GB.
+    memory: number
+    motd: string
+    difficulty: 'peaceful' | 'easy' | 'normal' | 'hard'
+    mode: 'survival' | 'creative' | 'adventure'
+    maxPlayers: number
+    viewDistance: number
+    seed: string
+    operator: string
+    whitelist: string[]
+    playitSecretKey: string
+    publicAddress: string
+    storage: string
+    worldSize: number
+}
+
+export type MinecraftPlayers = { whitelist: string[]; operators: string[] }
+
 export type SavedAnswers = {
     answers: MediaStackAnswers
     jellyfin: JellyfinAnswers
+    minecraft: MinecraftAnswers
     hasJellyfinApiKey: boolean
     hasJellyfinAdminPassword: boolean
     hasOpenSubtitlesPassword: boolean
+    hasPlayitSecretKey: boolean
     until: string
 }
 
@@ -346,13 +368,16 @@ export type CatalogApp = {
     id: string
     name: string
     description: string
-    links: { name: string; description: string; url?: string }[]
+    // A link with address is not a website, like a game server: url is then ip:port.
+    links: { name: string; description: string; address?: boolean; url?: string }[]
     installed: boolean
     // managed is set when Homelab installed the container, so it can update and remove it.
     managed: boolean
     version?: string
     updateAvailable: boolean
     hostUrl?: string
+    // publicAddress is where people outside your network reach the app, like a playit.gg address.
+    publicAddress?: string
     vmid?: number
     status?: string
     operation: AppOperation | null
@@ -374,6 +399,7 @@ export type Apps = {
         subtitleLanguages: string
         username: string
         downloadsSize: number
+        minecraft: MinecraftAnswers
     }
     error?: string
 }
@@ -521,10 +547,14 @@ export const api = {
         request<void>('POST', '/apps/jellyfin/install', { jellyfin, keepSecrets }),
     installApp: (id: string, answers: MediaStackAnswers, keepSecrets = false) =>
         request<void>('POST', `/apps/${id}/install`, { ...answers, keepSecrets }),
+    installMinecraft: (minecraft: MinecraftAnswers, keepSecrets = false) =>
+        request<void>('POST', '/apps/minecraft/install', { minecraft, keepSecrets }),
     retryApp: (id: string) => request<void>('POST', `/apps/${id}/retry`),
     forgetAppAnswers: (id: string) => request<void>('DELETE', `/apps/${id}/answers`),
     updateApp: (id: string) => request<void>('POST', `/apps/${id}/update`),
     removeApp: (id: string) => request<void>('POST', `/apps/${id}/remove`),
+    minecraftPlayers: () => request<MinecraftPlayers>('GET', '/apps/minecraft/players'),
+    changeMinecraftPlayers: (players: MinecraftPlayers) => request<void>('PUT', '/apps/minecraft/players', players),
     vpnSettings: (id: string) => request<{ countries: string }>('GET', `/apps/${id}/vpn`),
     changeVpn: (id: string, settings: { countries: string; wireguardPrivateKey: string }) =>
         request<void>('PUT', `/apps/${id}/vpn`, settings),

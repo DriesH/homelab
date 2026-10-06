@@ -259,6 +259,24 @@ func (c *Client) ChangeVPN(ctx context.Context, vmid int, settings VPNSettings) 
 	return c.do(ctx, http.MethodPut, "/v1/apps/media/vpn", VPNRequest{VMID: vmid, VPNSettings: settings}, nil)
 }
 
+// PlayersRequest gives the Minecraft server in container VMID new players.
+type PlayersRequest struct {
+	VMID int `json:"vmid"`
+	MinecraftPlayers
+}
+
+// MinecraftPlayers returns the whitelist and the operators of the Minecraft server in container vmid.
+func (c *Client) MinecraftPlayers(ctx context.Context, vmid int) (MinecraftPlayers, error) {
+	var players MinecraftPlayers
+	err := c.do(ctx, http.MethodGet, "/v1/apps/minecraft/players?vmid="+strconv.Itoa(vmid), nil, &players)
+
+	return players, err
+}
+
+func (c *Client) ChangeMinecraftPlayers(ctx context.Context, vmid int, players MinecraftPlayers) error {
+	return c.do(ctx, http.MethodPut, "/v1/apps/minecraft/players", PlayersRequest{VMID: vmid, MinecraftPlayers: players}, nil)
+}
+
 // SavedAppAnswers returns the answers of the last failed install without secrets, or nil.
 func (c *Client) SavedAppAnswers(ctx context.Context, app string) (*SavedAnswers, error) {
 	var saved *SavedAnswers

@@ -83,6 +83,9 @@ func (p *fakeProxmox) resources(w http.ResponseWriter, r *http.Request) {
 	if _, err := os.Stat(statePath("media-installed")); err == nil {
 		resources = append(resources, map[string]any{"type": "lxc", "node": "pve", "vmid": 130, "name": "media", "status": "running", "tags": "homelab;media", "maxcpu": 2, "maxmem": 4_294_967_296, "uptime": 60})
 	}
+	if _, err := os.Stat(statePath("minecraft-installed")); err == nil {
+		resources = append(resources, map[string]any{"type": "lxc", "node": "pve", "vmid": 150, "name": "minecraft", "status": "running", "tags": "homelab;minecraft", "maxcpu": 4, "maxmem": 5_905_580_032, "uptime": 60})
+	}
 	for _, resource := range resources {
 		id := resource["type"].(string) + "/" + fmt.Sprint(resource["vmid"])
 		switch resource["type"] {
@@ -182,9 +185,13 @@ func (p *fakeProxmox) node(w http.ResponseWriter, r *http.Request) {
 		writeData(w, "UPID:pve:restore")
 	case len(parts) == 3 && parts[0] == "lxc" && parts[2] == "config":
 		// The installed apps are from an older release, so the Apps page offers an update.
+		description := "Installed by Homelab\nhomelab-version: v0.7.1\n"
+		if parts[1] == "150" {
+			description += "homelab-address: homelab-dev.joinmc.link\n"
+		}
 		writeData(w, map[string]any{
 			"rootfs":      "local-lvm:vm-" + parts[1] + "-disk-0,size=8G",
-			"description": "Installed by Homelab\nhomelab-version: v0.7.1\n",
+			"description": description,
 		})
 	case len(parts) == 3 && parts[0] == "lxc" && parts[2] == "interfaces":
 		var vmid int

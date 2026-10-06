@@ -47,6 +47,8 @@ func (a AppAction) name() string {
 		return "removal"
 	case ActionVPN:
 		return "VPN change"
+	case ActionPlayers:
+		return "change of the players"
 	}
 	return string(a)
 }
@@ -293,15 +295,16 @@ type appAnswers interface {
 }
 
 // stackDirs are the folders of the installers in the stacks folder.
-var stackDirs = map[string]string{MediaStackApp: "arr", JellyfinApp: "jellyfin"}
+var stackDirs = map[string]string{MediaStackApp: "arr", JellyfinApp: "jellyfin", MinecraftApp: "minecraft"}
 
 // InstallRequest is what the manager sends: the answers of the media stack,
-// or of Jellyfin. With KeepSecrets, empty secret fields take the values of
-// the saved answers of the last failed install.
+// of Jellyfin or of Minecraft. With KeepSecrets, empty secret fields take the
+// values of the saved answers of the last failed install.
 type InstallRequest struct {
 	MediaStackAnswers
-	Jellyfin    JellyfinAnswers `json:"jellyfin"`
-	KeepSecrets bool            `json:"keepSecrets"`
+	Jellyfin    JellyfinAnswers  `json:"jellyfin"`
+	Minecraft   MinecraftAnswers `json:"minecraft"`
+	KeepSecrets bool             `json:"keepSecrets"`
 }
 
 // SavedAnswers are the answers of the last failed install, without the
@@ -311,20 +314,26 @@ type SavedAnswers struct {
 	Jellyfin          JellyfinAnswers   `json:"jellyfin"`
 	HasJellyfinAPIKey bool              `json:"hasJellyfinApiKey"`
 	// HasJellyfinAdminPassword is set when the saved answers have a Jellyfin admin password.
-	HasJellyfinAdminPassword bool      `json:"hasJellyfinAdminPassword"`
-	HasOpenSubtitlesPassword bool      `json:"hasOpenSubtitlesPassword"`
-	Until                    time.Time `json:"until"`
+	HasJellyfinAdminPassword bool             `json:"hasJellyfinAdminPassword"`
+	HasOpenSubtitlesPassword bool             `json:"hasOpenSubtitlesPassword"`
+	Minecraft                MinecraftAnswers `json:"minecraft"`
+	HasPlayitSecretKey       bool             `json:"hasPlayitSecretKey"`
+	Until                    time.Time        `json:"until"`
 }
 
 type savedFile struct {
-	Answers  MediaStackAnswers `json:"answers"`
-	Jellyfin JellyfinAnswers   `json:"jellyfin"`
-	SavedAt  time.Time         `json:"savedAt"`
+	Answers   MediaStackAnswers `json:"answers"`
+	Jellyfin  JellyfinAnswers   `json:"jellyfin"`
+	Minecraft MinecraftAnswers  `json:"minecraft"`
+	SavedAt   time.Time         `json:"savedAt"`
 }
 
 func (f savedFile) answersFor(app string) appAnswers {
-	if app == JellyfinApp {
+	switch app {
+	case JellyfinApp:
 		return f.Jellyfin
+	case MinecraftApp:
+		return f.Minecraft
 	}
 	return f.Answers
 }
@@ -415,6 +424,14 @@ func (i *AppInstaller) Install(app string, request InstallRequest) error {
 			answers.AdminPassword = saved.Jellyfin.AdminPassword
 		}
 		return i.installLocked(app, savedFile{Jellyfin: answers})
+	}
+
+	if app == MinecraftApp {
+		answers := request.Minecraft
+		if request.KeepSecrets && answers.PlayitSecretKey == "" {
+			answers.PlayitSecretKey = saved.Minecraft.PlayitSecretKey
+		}
+		return i.installLocked(app, savedFile{Minecraft: answers})
 	}
 
 	answers := request.MediaStackAnswers
@@ -682,17 +699,19 @@ func (i *AppInstaller) Saved(app string) (*SavedAnswers, error) {
 		return nil, err
 	}
 
-	answers, jellyfin := file.Answers, file.Jellyfin
+	answers, jellyfin, minecraft := file.Answers, file.Jellyfin, file.Minecraft
 	view := &SavedAnswers{
 		HasJellyfinAPIKey:        answers.JellyfinAPIKey != "",
 		HasJellyfinAdminPassword: answers.JellyfinAdminPassword != "" || jellyfin.AdminPassword != "",
 		HasOpenSubtitlesPassword: answers.OpenSubtitlesPassword != "",
+		HasPlayitSecretKey:       minecraft.PlayitSecretKey != "",
 		Until:                    file.SavedAt.Add(SavedAnswersTTL),
 	}
 	answers.WireGuardPrivateKey, answers.Password, answers.JellyfinAPIKey = "", "", ""
 	answers.JellyfinAdminPassword, answers.OpenSubtitlesPassword = "", ""
 	jellyfin.AdminPassword = ""
-	view.Answers, view.Jellyfin = answers, jellyfin
+	minecraft.PlayitSecretKey = ""
+	view.Answers, view.Jellyfin, view.Minecraft = answers, jellyfin, minecraft
 
 	return view, nil
 }

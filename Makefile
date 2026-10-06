@@ -25,6 +25,9 @@ bundle: build
 	install -m 0755 deploy/stacks/arr/install.sh $(BUNDLE)/stacks/arr/install.sh
 	install -m 0644 deploy/stacks/arr/compose.yaml deploy/stacks/arr/recyclarr.yml $(BUNDLE)/stacks/arr/
 	install -m 0755 deploy/stacks/jellyfin/install.sh $(BUNDLE)/stacks/jellyfin/install.sh
+	mkdir -p $(BUNDLE)/stacks/minecraft
+	install -m 0755 deploy/stacks/minecraft/install.sh $(BUNDLE)/stacks/minecraft/install.sh
+	install -m 0644 deploy/stacks/minecraft/compose.yaml $(BUNDLE)/stacks/minecraft/
 	# COPYFILE_DISABLE stops macOS tar from adding ._ files, which the agent refuses.
 	COPYFILE_DISABLE=1 tar -czf $(BUNDLE).tar.gz -C dist $(notdir $(BUNDLE))
 
